@@ -58,3 +58,27 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,94,255
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
 .status-box { margin-top: 15px; padding: 12px; background: #f0f4f8; border-radius: 10px; font-size: 14px; color: var(--muted); }
+
+
+/* 기존 스타일에 추가 */
+:root {
+  /* ... 기존 변수 ... */
+  --success: #10b981;
+}
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+
+.btn-success:hover {
+  filter: brightness(0.9);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
