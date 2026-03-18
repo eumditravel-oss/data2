@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QS 프로젝트 비교표 Pro</title>
+  <title>QS 단일 프로젝트 수량 관리자</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar__title">
-        <h1>QS 프로젝트 비교표</h1>
-        <p>프로젝트별 수량을 비교하고 엑셀로 결과를 저장합니다.</p>
+        <h1>QS 프로젝트 데이터 분석</h1>
+        <p>동별 대분류 및 층별 톤당 루베값(철근 비율) 분석 도구</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
@@ -22,98 +22,70 @@
     <main class="page">
       <section class="tabs">
         <button class="tab is-active" data-tab="upload">1. 데이터 업로드</button>
-        <button class="tab" data-tab="mapping">2. 설정 (동/아이템)</button>
-        <button class="tab" data-tab="compare">3. 동별 비교표</button>
+        <button class="tab" data-tab="mapping">2. 아이템 분류 설정</button>
+        <button class="tab" data-tab="view">3. 동별 상세 수량표</button>
       </section>
 
       <section id="tab-upload" class="tab-panel is-active">
-        <div class="panel">
-          <div class="upload-grid">
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>현재 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-current" multiple onchange="updateFiles('current')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-current" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 A</strong></div>
-              <label class="filebox"><input type="file" id="file-a" multiple onchange="updateFiles('a')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-a" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 B</strong></div>
-              <label class="filebox"><input type="file" id="file-b" multiple onchange="updateFiles('b')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-b" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 C</strong></div>
-              <label class="filebox"><input type="file" id="file-c" multiple onchange="updateFiles('c')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-c" class="file-list"></div>
-            </div>
+        <div class="panel upload-panel">
+          <div class="upload-box">
+            <h3>프로젝트 파일 업로드</h3>
+            <p>분석할 엑셀 파일들을 선택하세요 (여러 파일 가능)</p>
+            <label class="filebox">
+              <input type="file" id="file-main" multiple onchange="updateFiles()"/>
+              <span class="filebox__btn">파일 선택</span>
+            </label>
+            <div id="file-list" class="file-list"></div>
           </div>
-          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px;">데이터 분석 및 예측 시작</button>
+          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px; height: 50px; font-size: 16px;">데이터 정밀 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
         </div>
       </section>
 
       <section id="tab-mapping" class="tab-panel">
         <div class="panel">
-          <div class="sub-tabs">
-            <button class="sub-tab is-active" data-sub="sub-dong">동 명칭 통일 관리</button>
-            <button class="sub-tab" data-sub="sub-item">아이템 통일 관리</button>
+          <div class="toolbar">
+            <h3>아이템 카테고리 지정</h3>
+            <p>지표 계산을 위해 철근과 콘크리트 항목을 확인해주세요.</p>
+            <button id="btn-apply" class="btn btn-primary" style="margin-left:auto;">설정 완료 및 수량표 생성</button>
           </div>
-          <div id="sub-dong" class="sub-panel is-active">
-            <div class="toolbar"><input type="text" id="dong-search" class="input" placeholder="원본 동 명칭 검색..." style="width:300px;" /></div>
-            <div class="list-header">
-              <div style="flex:1; padding-left:16px;">프로젝트별 원본 동 명칭</div>
-              <div style="width:40px; text-align:center;">→</div>
-              <div style="flex:1; padding-left:16px;">표준 동 명칭 (비교표 기준)</div>
-            </div>
-            <div class="mapping-list" id="dong-mapping-list"></div>
+          <div class=\"list-header\">
+            <div style=\"width:60px; text-align:center;\">번호</div>
+            <div style=\"flex:1;\">추출된 아이템 명칭</div>
+            <div style=\"width:200px;\">통일 명칭</div>
+            <div style=\"width:150px;\">중분류(예측됨)</div>
           </div>
-          <div id="sub-item" class="sub-panel">
-            <div class="toolbar">
-              <input type="text" id="mapping-search" class="input" placeholder="아이템 명칭 검색..." style="width:300px;" />
-              <button id="btn-apply-all" class="btn btn-primary" style="margin-left:auto;">설정 완료 및 비교표 생성</button>
-            </div>
-            <div class="list-header">
-              <div class="col-check">선택</div>
-              <div class="col-orig">프로젝트별 원본</div>
-              <div class="col-edit">통일명</div>
-              <div class="col-cat">중분류</div>
-            </div>
-            <div id="mapping-group-list" class="mapping-list"></div>
-          </div>
+          <div id="mapping-list" class="mapping-list"></div>
         </div>
       </section>
 
-      <section id="tab-compare" class="tab-panel">
-        <div class="panel" style="border-left:5px solid #ff9f43; background:#fffcf9;">
-          <h3 style="margin-top:0;">층별 철근 지표 분석 (Ton / m³)</h3>
-          <div id="floor-ratio-board" class="compare-card__body" style="background:#fff; border:1px solid var(--line); border-radius:10px;"></div>
-        </div>
-        <div class="panel">
+      <section id="tab-view" class="tab-panel">
+        <div class="panel result-panel">
           <div class="toolbar">
-            <select id="filter-dong" class="input"></select>
-            <select id="filter-category" class="input">
-              <option value="all">중분류 전체</option>
-              <option value="콘크리트">콘크리트</option>
-              <option value="거푸집">거푸집</option>
-              <option value="철근">철근</option>
-              <option value="잡/기타">잡/기타</option>
-            </select>
-            <input type="text" id="filter-item" class="input" placeholder="아이템명 검색..." />
-            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">Excel 다운로드</button>
+            <div class="filter-group">
+              <label>동 선택 (대분류):</label>
+              <select id="filter-dong" class="input" style="width:200px;"></select>
+            </div>
+            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">Excel 내보내기</button>
           </div>
-          <div id="compare-card-list"></div>
+          
+          <div id="dong-summary" class="summary-card"></div>
+
+          <div class="excel-view-container">
+            <table id="main-excel-table" class="excel-table">
+              <thead><tr id="table-header-row"></tr></thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
   </div>
   <script src="app.js"></script>
   <script>
-    function updateFiles(key) {
-      const files = Array.from(document.getElementById('file-'+key).files);
-      document.getElementById('list-'+key).innerHTML = files.map(f=>`<span class="file-chip">${f.name}</span>`).join('');
+    function updateFiles() {
+      const files = Array.from(document.getElementById('file-main').files);
+      document.getElementById('file-list').innerHTML = files.map(f=>`<span class="file-chip">${f.name}</span>`).join('');
     }
   </script>
 </body>
