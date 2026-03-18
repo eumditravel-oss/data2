@@ -104,11 +104,13 @@
           <div class="panel__head">
             <div>
               <h2>2. 아이템 통일 설정</h2>
-              <p>유사한 아이템끼리 자동으로 묶은 뒤, 그룹 단위로 통일 아이템명을 설정합니다.</p>
+              <p>유사한 아이템끼리 그룹화한 뒤 병합/분리하여 최종 통일 아이템명을 설정합니다.</p>
             </div>
             <div class="toolbar">
               <input type="text" id="mapping-search" class="input" placeholder="아이템 그룹 검색" />
               <button id="btn-autofill" class="btn btn-secondary">자동 통일명 채우기</button>
+              <button id="btn-merge-groups" class="btn btn-secondary">선택 그룹 병합</button>
+              <button id="btn-split-selected" class="btn btn-secondary">선택 아이템 분리</button>
               <button id="btn-apply-mapping" class="btn btn-primary">통일명 적용</button>
             </div>
           </div>
@@ -118,6 +120,7 @@
             <div class="guide-chip">A 프로젝트</div>
             <div class="guide-chip">B 프로젝트</div>
             <div class="guide-chip">C 프로젝트</div>
+            <div class="guide-chip">그룹 선택</div>
             <div class="guide-chip guide-chip--accent">통일 아이템명</div>
           </div>
 
