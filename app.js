@@ -8,7 +8,6 @@ const fileListEls = { current: $("file-current-list"), A: $("file-a-list"), B: $
 const compareBody = $("compare-body");
 const statusBox = $("status-box");
 const logBox = $("log-box");
-const tabContainer = $("tab-container");
 
 const btnExtract = $("btn-extract");
 const btnOpenMapping = $("btn-open-mapping");
@@ -24,6 +23,14 @@ const btnSaveMapping = $("btn-save-mapping");
 const mappingBody = $("mapping-body");
 const typeaheadRoot = $("typeahead-root");
 
+// UI Controls
+const controlsBar = $("controls-bar");
+const selectBuilding = $("select-building");
+const selectFloor = $("select-floor");
+const wrapFloor = $("wrap-floor");
+const sumOptions = $("sum-options");
+const sumCheckboxes = $("sum-checkboxes");
+
 const PROJECT_KEYS = ["current", "A", "B", "C"];
 const PROJECT_LABELS = { current: "현재 프로젝트", A: "A 프로젝트", B: "B 프로젝트", C: "C 프로젝트" };
 
@@ -34,7 +41,7 @@ const CATEGORY_OPTIONS = [
 const INCLUDE_OPTIONS = [ { value: "Y", label: "반영" }, { value: "N", label: "제외" } ];
 const DEFAULT_ITEM_CODE_OPTIONS = ["240", "270", "300", "180", "3회", "4회", "유로", "알폼", "갱폼", "합벽", "보밑면", "데크", "방수턱", "H10", "H13", "H16", "H19", "H22", "H25", "H29"];
 
-// 기존의 "섹션(동)" 개념이 사라졌으므로, 뼈대가 되는 베이스 레이아웃 1세트만 정의
+// 뼈대 레이아웃 (동/층은 동적으로 주입됨)
 const BASE_LAYOUT = [
   { itemCode: "240", item: "레미콘", spec: "25-24-15", category: "레미콘" },
   { itemCode: "270", item: "레미콘", spec: "25-27-15", category: "레미콘" },
@@ -54,20 +61,16 @@ const BASE_LAYOUT = [
   { itemCode: "H16", item: "철근", spec: "H16", category: "철근" },
   { itemCode: "H19", item: "철근", spec: "H19", category: "철근" },
   { itemCode: "H22", item: "철근", spec: "H22", category: "철근" },
-  { section: "APT", itemCode: "H25", item: "철근", spec: "H25", category: "철근" },
-  { section: "APT", itemCode: "H29", item: "철근", spec: "H29", category: "철근" },
+  { itemCode: "H25", item: "철근", spec: "H25", category: "철근" },
+  { itemCode: "H29", item: "철근", spec: "H29", category: "철근" },
 ];
 
 const state = {
   rawEntriesByProject: { current: [], A: [], B: [], C: [] },
-  fileSummaryByProject: { current: [], A: [], B: [], C: [] },
-  uniqueNames: [],
-  mappingConfig: {},
-  lastCompareRows: [],
-  itemCodeOptions: [...DEFAULT_ITEM_CODE_OPTIONS],
+  uniqueNames: [], mappingConfig: {}, itemCodeOptions: [...DEFAULT_ITEM_CODE_OPTIONS],
   typeahead: { targetInput: null, targetKey: "", items: [], activeIndex: -1 },
-  sections: [], // 엑셀에서 추출한 층 목록을 동적으로 저장 (지상1층, 지상2층 등)
-  activeTab: "", 
+  buildings: [], floorsByBuilding: {}, 
+  activeBuilding: "", activeFloor: "", summationChecked: new Set()
 };
 
 function setStatus(text) { statusBox.textContent = text; }
@@ -79,20 +82,11 @@ function toNumber(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const cleaned = String(value ?? "").replace(/,/g, "").trim();
   if (!cleaned) return 0;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+  const n = Number(cleaned); return Number.isFinite(n) ? n : 0;
 }
 function fmtNumber(value) { return Number(value || 0).toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
-function fmtRatio(value) {
-  if (!value && value !== 0) return "0%";
-  return (Number(value) * 100).toFixed(0) + "%";
-}
-function ratioClass(value) {
-  if (!value) return "";
-  if (value < 0.9) return "bad";
-  if (value <= 1.1) return "good";
-  return "warn";
-}
+function fmtRatio(value) { return (!value && value !== 0) ? "0%" : (Number(value) * 100).toFixed(0) + "%"; }
+function ratioClass(value) { if (!value) return ""; if (value < 0.9) return "bad"; if (value <= 1.1) return "good"; return "warn"; }
 function updateFileListText() {
   for (const key of PROJECT_KEYS) {
     const files = Array.from(fileInputs[key].files || []);
@@ -106,93 +100,79 @@ function sortUniqueStrings(list) { return [...new Set(list.filter(Boolean))].sor
 function ensureItemCodeOption(value) {
   const text = normalizeDisplayText(value);
   if (!text) return;
-  if (!state.itemCodeOptions.includes(text)) {
-    state.itemCodeOptions.push(text);
-    state.itemCodeOptions = sortUniqueStrings(state.itemCodeOptions);
-  }
+  if (!state.itemCodeOptions.includes(text)) { state.itemCodeOptions.push(text); state.itemCodeOptions = sortUniqueStrings(state.itemCodeOptions); }
 }
 
 /** -----------------------------
- * 탭 동적 렌더링 및 UI 업데이트
+ * 핵심 로직: 엑셀 파싱 (2행 묶음 매칭 및 동 추출)
  * ----------------------------- */
-function renderTabs() {
-  if (state.sections.length === 0) {
-    tabContainer.innerHTML = "";
-    return;
+function parseSheetEntries(rows, projectKey, fileName, sheetName) {
+  // 1. 0~3행 안에서 "동"으로 끝나는 텍스트를 찾아 건물 이름으로 지정 (없으면 시트명 사용)
+  let buildingName = normalizeDisplayText(sheetName);
+  for(let r=0; r<4; r++) {
+    if(!rows[r]) continue;
+    for(let c=0; c<10; c++) {
+      let val = normalizeDisplayText(rows[r][c]);
+      if(val && val.endsWith("동")) { buildingName = val; break; }
+    }
   }
-  
-  tabContainer.innerHTML = state.sections.map(sec => {
-    const isActive = sec === state.activeTab;
-    const opacity = isActive ? '1' : '0.4';
-    const border = isActive ? '2px' : '1px';
-    const bgColor = isActive ? '#eef2f7' : '#ffffff';
-    return `<span class="legend__chip legend__chip--dynamic" data-tab="${escapeHtml(sec)}" 
-                  style="cursor: pointer; opacity: ${opacity}; border-width: ${border}; background-color: ${bgColor}; border-style: solid; border-color: #d8deea; padding: 6px 14px; border-radius: 20px; font-weight: bold;">
-              ${escapeHtml(sec)}
-            </span>`;
-  }).join("");
 
-  const chips = tabContainer.querySelectorAll(".legend__chip--dynamic");
-  chips.forEach(chip => {
-    chip.addEventListener("click", (e) => {
-      state.activeTab = e.currentTarget.getAttribute("data-tab");
-      renderTabs(); // 탭 색상 새로고침
-      if (state.lastCompareRows.length > 0) renderCompareTable(state.lastCompareRows);
-    });
-  });
-}
-
-/** -----------------------------
- * 엑셀 파싱 (완전히 새로 설계된 '층별(2행 묶음)' 추출 로직)
- * ----------------------------- */
-function parseSheetEntries(rows, projectKey, fileName) {
   const headerRow3 = rows[2] || []; // 노란색 타이틀
   const headerRow4 = rows[3] || []; // 주황색 타이틀
-
   const colStart = 1; 
   const colEnd = Math.max(headerRow3.length, headerRow4.length) - 1;
   const entries = [];
   const skipHeaders = ["합계", "비고", "누계", "소계", ""];
 
-  // 데이터는 6행(인덱스 5)부터 시작하며 2줄씩 짝지어서 읽음
-  for (let r = 5; r < rows.length; r += 2) {
-    const row1 = rows[r] || [];     // 층의 첫 번째 행 (노란색 수량 매칭)
-    const row2 = rows[r + 1] || []; // 층의 두 번째 행 (주황색 면적 매칭)
-    
-    // A열, B열, C열 중 텍스트가 있는 것을 '층 이름'으로 인식
-    let floorName = normalizeDisplayText(row1[0]) || normalizeDisplayText(row1[1]) || normalizeDisplayText(row1[2]);
-    
-    // 합계 텍스트가 들어간 줄이거나 층 이름이 없으면 건너뜀
-    if (!floorName || floorName.includes("합계") || floorName.includes("소계") || floorName === "계") {
-      continue; 
-    }
+  let currentFloor = "";
+  
+  // 2. 5행(데이터 시작)부터 아래로 읽으며 층과 2줄 묶음 처리
+  for(let r=4; r<rows.length; r++) {
+    let row1 = rows[r] || [];
+    let col0 = normalizeDisplayText(row1[0]);
+    let col1 = normalizeDisplayText(row1[1]);
+    let possibleFloor = col0 || col1;
 
-    for (let c = colStart; c <= colEnd; c += 1) {
-      const name3 = normalizeDisplayText(headerRow3[c]);
-      const name4 = normalizeDisplayText(headerRow4[c]);
+    // 첫 칸에 텍스트가 있다면 층이 시작되는 첫 번째 줄(3행 타이틀에 대응)
+    if(possibleFloor) {
+      // "계" -> "합계"로 변환
+      if(possibleFloor === "계" || possibleFloor === "층 계" || possibleFloor.includes("합계")) {
+        currentFloor = "합계";
+      } else {
+        currentFloor = possibleFloor;
+      }
 
-      // 3행(노란색) 타이틀이 있으면 첫 번째 줄(row1) 데이터와 연결
-      if (name3 && !skipHeaders.includes(name3)) {
-        const val = toNumber(row1[c]);
-        if (val !== 0) {
-          entries.push({
-            projectKey, projectLabel: PROJECT_LABELS[projectKey], section: floorName, sourceFile: fileName, rowIndex: r + 1, rowLabel: "1행", rawName: name3, normalizedName: normalizeText(name3), qty: val
-          });
+      if(!state.floorsByBuilding[buildingName]) state.floorsByBuilding[buildingName] = new Set();
+      state.floorsByBuilding[buildingName].add(currentFloor);
+
+      // (A) 첫 번째 줄: 3행 타이틀과 매칭하여 데이터 추출
+      for(let c=colStart; c<=colEnd; c++) {
+        let name3 = normalizeDisplayText(headerRow3[c]);
+        if(name3 && !skipHeaders.includes(name3)) {
+          let val = toNumber(row1[c]);
+          if(val !== 0) entries.push({ projectKey, building: buildingName, floor: currentFloor, rawName: name3, normalizedName: normalizeText(name3), qty: val });
         }
       }
 
-      // 4행(주황색) 타이틀이 있으면 두 번째 줄(row2) 데이터와 연결
-      if (name4 && !skipHeaders.includes(name4)) {
-        const val = toNumber(row2[c]);
-        if (val !== 0) {
-          entries.push({
-            projectKey, projectLabel: PROJECT_LABELS[projectKey], section: floorName, sourceFile: fileName, rowIndex: r + 2, rowLabel: "2행", rawName: name4, normalizedName: normalizeText(name4), qty: val
-          });
+      // (B) 두 번째 줄(병합된 층의 아래칸): 4행 타이틀과 매칭
+      if(r+1 < rows.length) {
+        let row2 = rows[r+1] || [];
+        let nextCol0 = normalizeDisplayText(row2[0]);
+        let nextCol1 = normalizeDisplayText(row2[1]);
+        // 다음 줄의 첫 칸이 비어있다면 병합된 것으로 간주하고 파싱 진행
+        if(!nextCol0 && !nextCol1) {
+          for(let c=colStart; c<=colEnd; c++) {
+            let name4 = normalizeDisplayText(headerRow4[c]);
+            if(name4 && !skipHeaders.includes(name4)) {
+              let val = toNumber(row2[c]);
+              if(val !== 0) entries.push({ projectKey, building: buildingName, floor: currentFloor, rawName: name4, normalizedName: normalizeText(name4), qty: val });
+            }
+          }
+          r++; // 두 번째 줄까지 처리했으므로 루프 건너뛰기
         }
       }
     }
   }
-
   return entries;
 }
 
@@ -200,12 +180,10 @@ async function parseWorkbookFile(file, projectKey) {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
   const allEntries = []; let totalEntryCount = 0; 
-
-  // 파일 내 모든 시트를 돌면서 데이터 추출
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
-    const entries = parseSheetEntries(rows, projectKey, file.name);
+    const entries = parseSheetEntries(rows, projectKey, file.name, sheetName);
     allEntries.push(...entries);
     totalEntryCount += entries.length;
   }
@@ -213,7 +191,93 @@ async function parseWorkbookFile(file, projectKey) {
 }
 
 /** -----------------------------
- * 명칭 매핑 및 제안
+ * UI 및 컨트롤러 업데이트 로직
+ * ----------------------------- */
+function updateControlsUI() {
+  controlsBar.style.display = "block";
+  selectBuilding.innerHTML = "";
+  
+  // 1. 건물(동) 드롭다운 채우기
+  state.buildings.forEach(b => {
+    const opt = document.createElement("option");
+    opt.value = b; opt.textContent = b;
+    if(state.activeBuilding === b) opt.selected = true;
+    selectBuilding.appendChild(opt);
+  });
+  
+  // 전체 합산 옵션 추가
+  const sumOpt = document.createElement("option");
+  sumOpt.value = "SUM_MODE"; sumOpt.textContent = "➡ 선택 동 합산 (전체 합계)";
+  if(state.activeBuilding === "SUM_MODE") sumOpt.selected = true;
+  selectBuilding.appendChild(sumOpt);
+
+  // 2. 모드에 따른 층 선택 UI 조작
+  if(state.activeBuilding === "SUM_MODE") {
+    wrapFloor.style.display = "none";
+    sumOptions.style.display = "block";
+    
+    // 체크박스 렌더링
+    sumCheckboxes.innerHTML = state.buildings.map(b => `
+      <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
+        <input type="checkbox" value="${b}" class="sum-chk" ${state.summationChecked.has(b) ? 'checked' : ''}>
+        ${b}
+      </label>
+    `).join("");
+
+    document.querySelectorAll(".sum-chk").forEach(chk => {
+      chk.addEventListener("change", (e) => {
+        if(e.target.checked) state.summationChecked.add(e.target.value);
+        else state.summationChecked.delete(e.target.value);
+        triggerRecalc();
+      });
+    });
+
+  } else {
+    wrapFloor.style.display = "flex";
+    sumOptions.style.display = "none";
+    
+    // 층 드롭다운 채우기 (해당 동에 있는 층들만)
+    selectFloor.innerHTML = "";
+    const floors = Array.from(state.floorsByBuilding[state.activeBuilding] || []);
+    
+    // "합계"가 있으면 맨 위로, 나머지는 1층, 2층 오름차순 정렬
+    floors.sort((a,b) => {
+      if(a==="합계") return -1; if(b==="합계") return 1;
+      return a.localeCompare(b, "ko", {numeric:true});
+    });
+
+    if(floors.length > 0 && !floors.includes(state.activeFloor)) {
+      state.activeFloor = floors[0];
+    }
+
+    floors.forEach(f => {
+      const opt = document.createElement("option");
+      opt.value = f; opt.textContent = f;
+      if(state.activeFloor === f) opt.selected = true;
+      selectFloor.appendChild(opt);
+    });
+  }
+}
+
+selectBuilding.addEventListener("change", (e) => {
+  state.activeBuilding = e.target.value;
+  updateControlsUI();
+  triggerRecalc();
+});
+
+selectFloor.addEventListener("change", (e) => {
+  state.activeFloor = e.target.value;
+  triggerRecalc();
+});
+
+function triggerRecalc() {
+  if (state.uniqueNames.length === 0) return;
+  const rows = calcCompareRows();
+  renderCompareTable(rows);
+}
+
+/** -----------------------------
+ * 명칭 매핑 등 기본 로직 (생략없이 포함)
  * ----------------------------- */
 function suggestMappingByName(rawName) {
   const t = normalizeText(rawName);
@@ -224,7 +288,6 @@ function suggestMappingByName(rawName) {
   if (t.includes("30MPA")) { result.category = "레미콘"; result.itemCode = "300"; result.note = "30MPA → 300"; return result; }
   if (t.includes("현치/무근") || t.includes("버림")) { result.category = "레미콘"; result.itemCode = "180"; result.note = "버림/현치무근 → 180"; return result; }
   if (t.includes("현치/구체") || t === "합벽채움" || t.includes("ACT-INSIDE")) { result.category = "레미콘"; result.itemCode = "240"; result.note = "구체/합벽/ACT-INSIDE 계열 → 240"; return result; }
-
   if (t === "3회") { result.category = "거푸집"; result.itemCode = "3회"; result.note = "3회 → 3회"; return result; }
   if (t === "4회") { result.category = "거푸집"; result.itemCode = "4회"; result.note = "4회 → 4회"; return result; }
   if (t === "유로") { result.category = "거푸집"; result.itemCode = "유로"; result.note = "유로 → 유로"; return result; }
@@ -235,7 +298,6 @@ function suggestMappingByName(rawName) {
   if (t === "보밑면") { result.category = "거푸집"; result.itemCode = "보밑면"; result.note = "보밑면 → 보밑면"; return result; }
   if (t === "DECK") { result.category = "거푸집"; result.itemCode = "데크"; result.note = "DECK → 데크"; return result; }
   if (t === "방수턱") { result.category = "거푸집"; result.itemCode = "방수턱"; result.note = "방수턱 → 방수턱"; return result; }
-
   if (t === "H10") { result.category = "철근"; result.itemCode = "H10"; result.note = "H10 → H10"; return result; }
   if (t === "H13") { result.category = "철근"; result.itemCode = "H13"; result.note = "H13 → H13"; return result; }
   if (t === "H16") { result.category = "철근"; result.itemCode = "H16"; result.note = "H16 → H16"; return result; }
@@ -250,11 +312,9 @@ function suggestMappingByName(rawName) {
 
 function buildUniqueNamesFromEntries() {
   const nameMap = new Map();
-  for (const projectKey of PROJECT_KEYS) {
-    for (const entry of state.rawEntriesByProject[projectKey]) {
-      if (!nameMap.has(entry.normalizedName)) {
-        nameMap.set(entry.normalizedName, { rawName: entry.rawName, normalizedName: entry.normalizedName });
-      }
+  for (const pk of PROJECT_KEYS) {
+    for (const entry of state.rawEntriesByProject[pk]) {
+      if (!nameMap.has(entry.normalizedName)) nameMap.set(entry.normalizedName, { rawName: entry.rawName, normalizedName: entry.normalizedName });
     }
   }
   state.uniqueNames = Array.from(nameMap.values()).sort((a, b) => a.rawName.localeCompare(b.rawName, "ko"));
@@ -325,14 +385,10 @@ function applyVisualStateToRow(row) {
 function bindMappingRowBehaviors() {
   const rows = Array.from(mappingBody.querySelectorAll("tr[data-name-key]"));
   rows.forEach((row) => {
-    const includeSelect = row.querySelector(".map-include");
-    const categorySelect = row.querySelector(".map-category");
-    const itemInput = row.querySelector(".itemcode-input");
-    const addBtn = row.querySelector(".itemcode-add-btn");
-
+    const includeSelect = row.querySelector(".map-include"); const categorySelect = row.querySelector(".map-category");
+    const itemInput = row.querySelector(".itemcode-input"); const addBtn = row.querySelector(".itemcode-add-btn");
     applyVisualStateToRow(row);
-    includeSelect.addEventListener("change", () => applyVisualStateToRow(row));
-    categorySelect.addEventListener("change", () => applyVisualStateToRow(row));
+    includeSelect.addEventListener("change", () => applyVisualStateToRow(row)); categorySelect.addEventListener("change", () => applyVisualStateToRow(row));
     itemInput.addEventListener("focus", () => showTypeaheadForInput(itemInput, row.dataset.nameKey));
     itemInput.addEventListener("input", () => showTypeaheadForInput(itemInput, row.dataset.nameKey));
     itemInput.addEventListener("keydown", (e) => {
@@ -355,10 +411,8 @@ function bindMappingRowBehaviors() {
 function saveMappingFromUI() {
   const rows = Array.from(mappingBody.querySelectorAll("tr[data-name-key]"));
   rows.forEach((row) => {
-    const key = row.dataset.nameKey;
-    const include = row.querySelector(".map-include")?.value || "Y";
-    const category = row.querySelector(".map-category")?.value || "";
-    const itemCode = normalizeDisplayText(row.querySelector(".itemcode-input")?.value || "");
+    const key = row.dataset.nameKey; const include = row.querySelector(".map-include")?.value || "Y";
+    const category = row.querySelector(".map-category")?.value || ""; const itemCode = normalizeDisplayText(row.querySelector(".itemcode-input")?.value || "");
     if (itemCode) ensureItemCodeOption(itemCode);
     state.mappingConfig[key] = { include, category, itemCode, note: suggestMappingByName(key).note || "" };
   });
@@ -373,116 +427,83 @@ function applyAutoSuggestionsToCurrentMapping() {
   renderMappingTable();
 }
 
-/** -----------------------------
- * 타입어헤드 (자동완성)
- * ----------------------------- */
 function getFilteredItemCodeOptions(keyword, forceAll = false) {
-  const q = normalizeText(keyword);
-  const list = sortUniqueStrings(state.itemCodeOptions);
+  const q = normalizeText(keyword); const list = sortUniqueStrings(state.itemCodeOptions);
   if (forceAll || !q) return list.slice(0, 200);
   const starts = []; const includes = [];
-  for (const item of list) { const n = normalizeText(item); if (n.startsWith(q)) { starts.push(item); } else if (n.includes(q)) { includes.push(item); } }
+  for (const item of list) { const n = normalizeText(item); if (n.startsWith(q)) starts.push(item); else if (n.includes(q)) includes.push(item); }
   return [...starts, ...includes].slice(0, 200);
 }
-
-function positionTypeahead(input) {
-  const rect = input.getBoundingClientRect();
-  const width = Math.max(rect.width, 240);
-  typeaheadRoot.style.left = `${rect.left + window.scrollX}px`;
-  typeaheadRoot.style.top = `${rect.bottom + window.scrollY + 4}px`;
-  typeaheadRoot.style.width = `${width}px`;
-}
-
+function positionTypeahead(input) { const rect = input.getBoundingClientRect(); const width = Math.max(rect.width, 240); typeaheadRoot.style.left = `${rect.left + window.scrollX}px`; typeaheadRoot.style.top = `${rect.bottom + window.scrollY + 4}px`; typeaheadRoot.style.width = `${width}px`; }
 function renderTypeahead(items) {
   state.typeahead.items = items; state.typeahead.activeIndex = items.length ? 0 : -1;
   if (!items.length) { typeaheadRoot.innerHTML = `<div class="typeahead-empty">일치하는 항목이 없습니다. 직접 입력 후 추가할 수 있습니다.</div>`; return; }
   typeaheadRoot.innerHTML = `<div class="typeahead-list">${items.map((item, idx) => `<button type="button" class="typeahead-item ${idx === 0 ? "is-active" : ""}" data-index="${idx}">${escapeHtml(item)}</button>`).join("")}</div>`;
-  Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((btn) => {
-    btn.addEventListener("mousedown", (e) => e.preventDefault());
-    btn.addEventListener("click", () => commitTypeaheadSelection(Number(btn.dataset.index)));
-  });
+  Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((btn) => { btn.addEventListener("mousedown", (e) => e.preventDefault()); btn.addEventListener("click", () => commitTypeaheadSelection(Number(btn.dataset.index))); });
 }
-
-function showTypeaheadForInput(input, nameKey, forceAll = false) {
-  state.typeahead.targetInput = input; state.typeahead.targetKey = nameKey;
-  const items = getFilteredItemCodeOptions(input.value, forceAll);
-  positionTypeahead(input); renderTypeahead(items); typeaheadRoot.hidden = false;
-}
-
-function hideTypeahead() {
-  typeaheadRoot.hidden = true; typeaheadRoot.innerHTML = "";
-  state.typeahead.targetInput = null; state.typeahead.targetKey = ""; state.typeahead.items = []; state.typeahead.activeIndex = -1;
-}
-
-function refreshTypeaheadActive() {
-  Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((el, idx) => { el.classList.toggle("is-active", idx === state.typeahead.activeIndex); });
-}
-
+function showTypeaheadForInput(input, nameKey, forceAll = false) { state.typeahead.targetInput = input; state.typeahead.targetKey = nameKey; const items = getFilteredItemCodeOptions(input.value, forceAll); positionTypeahead(input); renderTypeahead(items); typeaheadRoot.hidden = false; }
+function hideTypeahead() { typeaheadRoot.hidden = true; typeaheadRoot.innerHTML = ""; state.typeahead.targetInput = null; state.typeahead.targetKey = ""; state.typeahead.items = []; state.typeahead.activeIndex = -1; }
+function refreshTypeaheadActive() { Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((el, idx) => { el.classList.toggle("is-active", idx === state.typeahead.activeIndex); }); }
 function moveTypeahead(delta) {
-  const len = state.typeahead.items.length; if (!len) return;
-  const next = state.typeahead.activeIndex + delta;
-  if (next < 0) { state.typeahead.activeIndex = len - 1; } else if (next >= len) { state.typeahead.activeIndex = 0; } else { state.typeahead.activeIndex = next; }
+  const len = state.typeahead.items.length; if (!len) return; const next = state.typeahead.activeIndex + delta;
+  if (next < 0) state.typeahead.activeIndex = len - 1; else if (next >= len) state.typeahead.activeIndex = 0; else state.typeahead.activeIndex = next;
   refreshTypeaheadActive();
 }
-
 function commitTypeaheadSelection(index) {
   const value = state.typeahead.items[index]; if (!value || !state.typeahead.targetInput) return;
   state.typeahead.targetInput.value = value; ensureItemCodeOption(value); hideTypeahead(); state.typeahead.targetInput?.focus();
 }
-
 function commitManualItemCode(nameKey, input, text) {
   ensureItemCodeOption(text); input.value = text;
-  const row = input.closest("tr[data-name-key]");
-  const category = row.querySelector(".map-category")?.value || "";
-  const include = row.querySelector(".map-include")?.value || "Y";
+  const row = input.closest("tr[data-name-key]"); const category = row.querySelector(".map-category")?.value || ""; const include = row.querySelector(".map-include")?.value || "Y";
   state.mappingConfig[nameKey] = { include, category, itemCode: text, note: suggestMappingByName(nameKey).note || "" };
   hideTypeahead(); setStatus(`아이템구분 추가: ${text}`);
 }
 
-/** -----------------------------
- * 데이터 취합 및 계산
- * ----------------------------- */
 function clearDataState() {
   state.rawEntriesByProject = { current: [], A: [], B: [], C: [] };
-  state.fileSummaryByProject = { current: [], A: [], B: [], C: [] };
   state.uniqueNames = []; state.mappingConfig = {}; state.lastCompareRows = []; state.itemCodeOptions = [...DEFAULT_ITEM_CODE_OPTIONS];
-  state.sections = []; state.activeTab = "";
+  state.buildings = []; state.floorsByBuilding = {}; state.activeBuilding = ""; state.activeFloor = ""; state.summationChecked.clear();
 }
 
 async function extractNamesFromFiles() {
   clearDataState();
   const logs = []; let totalFileCount = 0;
-  for (const projectKey of PROJECT_KEYS) {
-    const files = Array.from(fileInputs[projectKey].files || []);
+  for (const pk of PROJECT_KEYS) {
+    const files = Array.from(fileInputs[pk].files || []);
     totalFileCount += files.length;
     for (const file of files) {
-      const parsed = await parseWorkbookFile(file, projectKey);
-      state.rawEntriesByProject[projectKey].push(...parsed.entries);
-      state.fileSummaryByProject[projectKey].push(parsed);
-      logs.push(`[${PROJECT_LABELS[projectKey]}] 파일: ${parsed.fileName}`, `- 총 추출건수: ${parsed.entryCount}`, "");
+      const parsed = await parseWorkbookFile(file, pk);
+      state.rawEntriesByProject[pk].push(...parsed.entries);
+      logs.push(`[${PROJECT_LABELS[pk]}] 파일: ${file.name}`, `- 총 추출건수: ${parsed.entryCount}`, "");
     }
   }
   if (!totalFileCount) throw new Error("업로드된 파일이 없습니다.");
   
-  // 파일 전체에서 유일한 층(Floor) 이름들을 긁어모아 탭 목록 생성
-  const allSections = new Set();
-  PROJECT_KEYS.forEach(pk => {
-    state.rawEntriesByProject[pk].forEach(e => allSections.add(e.section));
-  });
-  state.sections = Array.from(allSections);
-  if (state.sections.length > 0) state.activeTab = state.sections[0];
+  // 데이터에서 존재하는 고유 동(Building) 추출
+  const buildingSet = new Set();
+  PROJECT_KEYS.forEach(pk => state.rawEntriesByProject[pk].forEach(e => buildingSet.add(e.building)));
+  state.buildings = Array.from(buildingSet).sort();
   
+  if(state.buildings.length > 0) {
+    state.activeBuilding = state.buildings[0];
+    state.buildings.forEach(b => state.summationChecked.add(b)); // 전체 동 기본 선택
+  }
+
   buildUniqueNamesFromEntries(); ensureMappingConfig();
-  renderTabs(); // 탭 그리기
+  updateControlsUI(); // 동/층 선택 UI 업데이트
   
   btnOpenMapping.disabled = state.uniqueNames.length === 0; btnCalc.disabled = state.uniqueNames.length === 0;
   setLog(logs.join("\n") || "로그가 없습니다."); setStatus(`명칭 추출 완료: ${state.uniqueNames.length}개`);
 }
 
+/** -----------------------------
+ * 핵심 로직: 비교표 계산 (선택된 UI 모드에 따라 필터 및 합산)
+ * ----------------------------- */
 function getMappedEntriesByProject() {
   const result = { current: [], A: [], B: [], C: [] };
-  for (const projectKey of PROJECT_KEYS) {
-    result[projectKey] = state.rawEntriesByProject[projectKey].map((entry) => {
+  for (const pk of PROJECT_KEYS) {
+    result[pk] = state.rawEntriesByProject[pk].map((entry) => {
       const config = state.mappingConfig[entry.normalizedName];
       if (!config || config.include !== "Y" || !config.category || config.category === "제외" || !config.itemCode) return null;
       return { ...entry, mappedCategory: config.category, mappedItemCode: config.itemCode };
@@ -491,76 +512,82 @@ function getMappedEntriesByProject() {
   return result;
 }
 
-function buildProjectAggregate(mappedEntries) {
-  const aggregate = { current: {}, A: {}, B: {}, C: {} };
-  for (const projectKey of PROJECT_KEYS) {
-    const bucket = {};
-    for (const entry of mappedEntries[projectKey]) {
-      const key = `${entry.section}__${entry.mappedCategory}__${entry.mappedItemCode}`;
-      bucket[key] = (bucket[key] || 0) + entry.qty;
-    }
-    aggregate[projectKey] = bucket;
-  }
-  return aggregate;
-}
-
 function calcCompareRows() {
   const mappedEntries = getMappedEntriesByProject();
-  const aggregate = buildProjectAggregate(mappedEntries);
   
-  const allKeys = new Set();
-  for (const projectKey of PROJECT_KEYS) { for (const k of Object.keys(aggregate[projectKey])) { allKeys.add(k); } }
-  
-  const dynamicItems = {}; const hardcodedKeys = new Set();
-  for (const row of BASE_LAYOUT) { hardcodedKeys.add(`__${row.category}__${row.itemCode}`); }
-  
-  for (const k of allKeys) {
-    const parts = k.split("__"); const sec = parts[0]; const cat = parts[1]; const ic = parts[2];
-    if (!hardcodedKeys.has(`__${cat}__${ic}`)) {
-      if (!dynamicItems[sec]) dynamicItems[sec] = {}; if (!dynamicItems[sec][cat]) dynamicItems[sec][cat] = [];
-      dynamicItems[sec][cat].push(ic);
+  // 데이터를 [키: 동__층__카테고리__아이템코드] 로 합산 생성
+  const agg = { current: {}, A: {}, B: {}, C: {} };
+  const allDynamicKeys = new Set();
+  const hardcodedKeys = new Set(BASE_LAYOUT.map(r => `__${r.category}__${r.itemCode}`));
+
+  for (const pk of PROJECT_KEYS) {
+    for (const entry of mappedEntries[pk]) {
+      const key = `${entry.building}__${entry.floor}__${entry.mappedCategory}__${entry.mappedItemCode}`;
+      agg[pk][key] = (agg[pk][key] || 0) + entry.qty;
+      
+      if (!hardcodedKeys.has(`__${entry.mappedCategory}__${entry.mappedItemCode}`)) {
+        allDynamicKeys.add(`${entry.mappedCategory}__${entry.mappedItemCode}`);
+      }
     }
   }
 
-  const rows = []; 
-  const categoryOrder = ["레미콘", "거푸집", "철근"]; 
+  const rows = [];
+  const b = state.activeBuilding;
+  const f = state.activeFloor;
+  const isSumMode = (b === "SUM_MODE");
 
-  // 추출된 모든 층에 대하여 고정된 뼈대 레이아웃(레미콘, 거푸집, 철근)을 똑같이 복제하여 계산
-  for (const sec of state.sections) {
-    rows.push({ type: "section", section: sec });
+  const secTitle = isSumMode ? "선택 동 통합 합계" : `${b} - ${f}`;
+  rows.push({ type: "section", section: secTitle });
 
-    for (const cat of categoryOrder) {
-      const hardcodedForCat = BASE_LAYOUT.filter(r => r.category === cat);
-      for (const row of hardcodedForCat) {
-        const key = `${sec}__${cat}__${row.itemCode}`;
-        const cur = aggregate.current[key] || 0; const A = aggregate.A[key] || 0; const B = aggregate.B[key] || 0; const C = aggregate.C[key] || 0;
-        const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
-        rows.push({ ...row, section: sec, current: cur, A, B, C, avg, ratio, note: row.note || "" });
-      }
-      if (dynamicItems[sec] && dynamicItems[sec][cat]) {
-        for (const ic of dynamicItems[sec][cat]) {
-          const key = `${sec}__${cat}__${ic}`;
-          const cur = aggregate.current[key] || 0; const A = aggregate.A[key] || 0; const B = aggregate.B[key] || 0; const C = aggregate.C[key] || 0;
-          const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
-          rows.push({ section: sec, itemCode: ic, item: cat, spec: ic, category: cat, current: cur, A, B, C, avg, ratio, note: "사용자 추가 항목" });
+  const categoryOrder = ["레미콘", "거푸집", "철근"];
+
+  // 1. 하드코딩된 레이아웃 순회
+  for (const cat of categoryOrder) {
+    const hardcodedForCat = BASE_LAYOUT.filter(r => r.category === cat);
+    for (const row of hardcodedForCat) {
+      let cur = 0, A = 0, B = 0, C = 0;
+      
+      if (isSumMode) {
+        // 합산 모드: 선택된 모든 동의 "합계" 층만 싹 긁어서 더함
+        for(const chk of state.summationChecked) {
+          const key = `${chk}__합계__${cat}__${row.itemCode}`;
+          cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
         }
+      } else {
+        // 개별 출력 모드: 현재 선택된 동과 층의 데이터만 가져옴
+        const key = `${b}__${f}__${cat}__${row.itemCode}`;
+        cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
       }
+
+      const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
+      rows.push({ ...row, section: secTitle, current: cur, A, B, C, avg, ratio, note: row.note || "" });
     }
-    
-    if (dynamicItems[sec]) {
-      for (const [dynCat, dynIcs] of Object.entries(dynamicItems[sec])) {
-        if (!categoryOrder.includes(dynCat)) {
-          for (const ic of dynIcs) {
-            const key = `${sec}__${dynCat}__${ic}`;
-            const cur = aggregate.current[key] || 0; const A = aggregate.A[key] || 0; const B = aggregate.B[key] || 0; const C = aggregate.C[key] || 0;
-            const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
-            rows.push({ section: sec, itemCode: ic, item: dynCat, spec: ic, category: dynCat, current: cur, A, B, C, avg, ratio, note: "사용자 추가 항목" });
+
+    // 2. 사용자가 추가한 다이나믹 항목 이어서 순회
+    for (const dynKey of allDynamicKeys) {
+      const parts = dynKey.split("__");
+      if (parts[0] === cat) {
+        const ic = parts[1];
+        let cur = 0, A = 0, B = 0, C = 0;
+        
+        if (isSumMode) {
+          for(const chk of state.summationChecked) {
+            const key = `${chk}__합계__${cat}__${ic}`;
+            cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
           }
+        } else {
+          const key = `${b}__${f}__${cat}__${ic}`;
+          cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
         }
+
+        const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
+        rows.push({ section: secTitle, itemCode: ic, item: cat, spec: ic, category: cat, current: cur, A, B, C, avg, ratio, note: "사용자 추가" });
       }
     }
   }
-  state.lastCompareRows = rows; return rows;
+  
+  state.lastCompareRows = rows;
+  return rows;
 }
 
 function renderCompareTable(rows) {
@@ -568,18 +595,12 @@ function renderCompareTable(rows) {
     compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">비교표가 아직 생성되지 않았습니다.</td></tr>`;
     return;
   }
-  
-  // 화면에는 현재 클릭된 탭의 내용만 보여줌
-  const filteredRows = rows.filter(r => r.section === state.activeTab && r.type !== "section");
-  if (!filteredRows.length) {
-    compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">[${state.activeTab}] 층에 해당하는 데이터가 없습니다.</td></tr>`;
-    return;
-  }
-  
+  // 섹션 라인 제거하고 순수 데이터만 출력 (표 타이틀은 고정)
+  const filteredRows = rows.filter(r => r.type !== "section");
   const html = filteredRows.map((row) => {
     return `
       <tr>
-        <td>${escapeHtml(row.section)}</td>
+        <td style="font-weight:bold; color:#1d4ed8;">${escapeHtml(row.section)}</td>
         <td>${escapeHtml(row.itemCode)}</td>
         <td>${escapeHtml(row.item)}</td>
         <td>${escapeHtml(row.spec)}</td>
@@ -611,18 +632,12 @@ function validateBeforeCalc() {
 
 
 /** -----------------------------
- * 엑셀 다운로드 (비교표_갑지 양식 100% 동일 복제, 색상, 테두리, 행 높이 지원)
+ * 엑셀 다운로드 (갑지 양식 & 현재 화면 동기화)
  * ----------------------------- */
 function exportCompareExcel() {
-  if (!state.lastCompareRows.length) {
-    setStatus("내보낼 비교표가 없습니다.");
-    return;
-  }
+  if (!state.lastCompareRows.length) { setStatus("내보낼 비교표가 없습니다."); return; }
 
-  const ws = {};
-  const merges = [];
-  const rowsFormat = []; 
-  
+  const ws = {}; const merges = []; const rowsFormat = []; 
   const fontName = "맑은 고딕";
   const borderThin = { style: "thin", color: { rgb: "000000" } };
   const borderAll = { top: borderThin, bottom: borderThin, left: borderThin, right: borderThin };
@@ -635,32 +650,23 @@ function exportCompareExcel() {
   const ratioStyle = { font: { name: fontName, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" }, border: borderAll, numFmt: "0%" };
 
   ws[XLSX.utils.encode_cell({ c: 0, r: 0 })] = { v: "ㅇㅇ 프로젝트 비교분석자료", t: "s", s: titleStyle };
-  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }); 
-  rowsFormat[0] = { hpt: 40 }; 
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }); rowsFormat[0] = { hpt: 40 }; 
 
   const headers = ["코드", "품명", "규격", "현재 프로젝트", "'A' 프로젝트", "'B' 프로젝트", "'C' 프로젝트", "평균치(A~C프로젝트)", "비율", "비고"];
-  for (let c = 0; c < headers.length; c++) {
-    ws[XLSX.utils.encode_cell({ c: c, r: 1 })] = { v: headers[c], t: "s", s: headerStyle };
-  }
+  for (let c = 0; c < headers.length; c++) ws[XLSX.utils.encode_cell({ c: c, r: 1 })] = { v: headers[c], t: "s", s: headerStyle };
   rowsFormat[1] = { hpt: 25 };
 
   let r = 2; 
   state.lastCompareRows.forEach((row) => {
     if (row.type === "section") {
-      // 층 간 띄어쓰기 공백행 (테두리 없음)
-      for (let c = 0; c < 10; c++) {
-        ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: "", t: "s" };
-      }
-      rowsFormat[r] = { hpt: 12 };
-      r++;
+      for (let c = 0; c < 10; c++) ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: "", t: "s" };
+      rowsFormat[r] = { hpt: 12 }; r++;
 
-      // 층 타이틀행 (B열에 이름, 연두색 배경)
       for (let c = 0; c < 10; c++) {
         let val = c === 1 ? row.section : "";
         ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: val, t: "s", s: sectionStyle };
       }
-      rowsFormat[r] = { hpt: 22 };
-      r++;
+      rowsFormat[r] = { hpt: 22 }; r++;
     } else {
       const ratioVal = Number.isFinite(row.ratio) ? Number(row.ratio) : 0;
       const rowData = [
@@ -675,40 +681,29 @@ function exportCompareExcel() {
         { v: ratioVal, t: "n", s: ratioStyle }, 
         { v: row.note || "", t: "s", s: centerStyle },
       ];
-      for (let c = 0; c < rowData.length; c++) {
-        ws[XLSX.utils.encode_cell({ c: c, r: r })] = rowData[c];
-      }
-      rowsFormat[r] = { hpt: 20 };
-      r++;
+      for (let c = 0; c < rowData.length; c++) ws[XLSX.utils.encode_cell({ c: c, r: r })] = rowData[c];
+      rowsFormat[r] = { hpt: 20 }; r++;
     }
   });
 
   ws['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: r - 1 } });
-  ws['!merges'] = merges;
-  ws['!rows'] = rowsFormat; 
-  ws['!cols'] = [ 
-    { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, 
-    { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, 
-    { wch: 10 }, { wch: 15 }
-  ];
+  ws['!merges'] = merges; ws['!rows'] = rowsFormat; 
+  ws['!cols'] = [ { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 15 } ];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "비교표");
   XLSX.writeFile(wb, "비교표_결과.xlsx");
 }
 
-/** -----------------------------
- * 기타 이벤트 제어
- * ----------------------------- */
 function resetAll() {
-  for (const key of PROJECT_KEYS) fileInputs[key].value = "";
-  updateFileListText(); clearDataState(); renderTabs();
+  for (const pk of PROJECT_KEYS) fileInputs[pk].value = "";
+  updateFileListText(); clearDataState(); controlsBar.style.display = "none";
   btnOpenMapping.disabled = true; btnCalc.disabled = true; btnExportCsv.disabled = true;
   compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">비교표가 아직 생성되지 않았습니다.</td></tr>`;
   mappingBody.innerHTML = ""; setStatus("대기 중"); setLog("로그가 여기에 표시됩니다."); closeModal();
 }
 
-for (const key of PROJECT_KEYS) fileInputs[key].addEventListener("change", updateFileListText);
+for (const pk of PROJECT_KEYS) fileInputs[pk].addEventListener("change", updateFileListText);
 
 btnExportCsv.textContent = "엑셀 내보내기";
 btnExtract.addEventListener("click", async () => { try { setStatus("명칭 추출 중..."); setLog("파일을 분석하고 있습니다..."); await extractNamesFromFiles(); renderMappingTable(); openModal(); } catch (error) { console.error(error); setStatus("오류 발생"); setLog(error?.message || String(error)); } });
@@ -724,4 +719,4 @@ document.addEventListener("click", (e) => { if (!typeaheadRoot.hidden) { const c
 window.addEventListener("resize", () => { if (!typeaheadRoot.hidden && state.typeahead.targetInput) positionTypeahead(state.typeahead.targetInput); });
 window.addEventListener("scroll", () => { if (!typeaheadRoot.hidden && state.typeahead.targetInput) positionTypeahead(state.typeahead.targetInput); }, true);
 
-updateFileListText(); renderTabs(); setStatus("대기 중"); setLog("로그가 여기에 표시됩니다.");
+updateFileListText(); setStatus("대기 중"); setLog("로그가 여기에 표시됩니다.");
