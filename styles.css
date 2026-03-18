@@ -61,3 +61,44 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-s
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
 .status-box { margin-top: 16px; padding: 12px; background: #f0f4f8; border-radius: 10px; color: var(--muted); }
+
+
+/* 기존 스타일에 추가 */
+.mapping-group-card.is-selected {
+  border: 2px solid var(--primary);
+  background: var(--primary-weak);
+}
+
+.mapping-group-card__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.group-canonical-input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.mapping-item-chip input {
+  margin-right: 5px;
+}
+
+.file-chip {
+  padding: 4px 10px;
+  background: #eaf1ff;
+  color: #1f5eff;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: bold;
+  border: 1px solid #d9e1ef;
+}
+
+.toolbar-wrap {
+  justify-content: flex-start;
+}
