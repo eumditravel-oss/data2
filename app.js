@@ -26,24 +26,47 @@ const dom = {
   uploadStatus: $("upload-status")
 };
 
+/* 지능형 층 정렬 함수 */
+function floorSorter(a, b) {
+  const getRank = (name) => {
+    const s = String(name).toUpperCase().trim();
+    // 1. 지하층 (B)
+    if (s.startsWith('B')) {
+      const num = parseInt(s.replace('B', '')) || 0;
+      return 1000 - num; // 숫자가 클수록 낮은 랭크 (B5 < B1) -> Descending
+    }
+    // 2. 기초 (FT)
+    if (s === 'FT') return 2000;
+    // 3. 지상층 (F)
+    if (s.endsWith('F') || /^\d+$/.test(s)) {
+      const num = parseInt(s.replace('F', '')) || 0;
+      return 3000 + num; // 숫자가 클수록 높은 랭크 (1F < 30F) -> Ascending
+    }
+    // 4. 옥탑 (PH)
+    if (s.startsWith('PH')) {
+      const num = parseInt(s.replace('PH', '')) || 0;
+      return 4000 + num;
+    }
+    return 5000;
+  };
+  return getRank(a) - getRank(b);
+}
+
 /* 중분류 예측 알고리즘 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
-  if (/(H|D|HD|SD)\d+/.test(s) || s.includes("철근") || s.startsWith("H") || s.startsWith("D")) return "철근";
+  if (/(H|D|HD|SD|D)\d+/.test(s) || s.includes("철근") || s.startsWith("H1") || s.startsWith("D1")) return "철근";
   if (s.includes("MPA") || /\d+-\d+-\d+/.test(s) || (/^\d+$/.test(s) && parseInt(s) >= 150)) return "콘크리트";
   if (["폼","FORM","회","유로","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
   return "잡/기타";
 }
 
-/* 데이터 분석 및 파싱 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 분석 중입니다. 유효하지 않은 명칭을 필터링합니다...";
+  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다...";
   try {
     for (const p of PROJECTS) {
-      const input = $(`file-${p.key}`);
-      const files = Array.from(input.files || []);
+      const files = Array.from($(`file-${p.key}`).files);
       if(files.length === 0) continue;
-
       const pState = state.projects[p.key];
       for (const file of files) {
         const buffer = await file.arrayBuffer();
@@ -54,19 +77,12 @@ dom.btnParse.onclick = async () => {
         });
       }
     }
-    initDongMapping();
-    buildItemGroups();
-    renderDongUI();
-    renderItemUI();
+    initDongMapping(); buildItemGroups(); renderDongUI(); renderItemUI();
     dom.uploadStatus.textContent = "분석 완료!";
     dom.tabs[1].click();
-  } catch(e) { 
-    dom.uploadStatus.textContent = "오류 발생: " + e.message; 
-    console.error(e);
-  }
+  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; }
 };
 
-/* 엑셀 구조 정밀 파싱 */
 function parseSheetData(rows, pState) {
   let currentDong = "";
   let lastFloor = "";
@@ -78,14 +94,14 @@ function parseSheetData(rows, pState) {
     if (!row || row.length === 0) continue;
 
     const rowText = row.join("|");
-    
-    // [수정] "동 명 : [101동]" 형태만 추출하고 시스템 변수([CURRENT] 등)는 무시
+    // 동 명칭 추출: [CURRENT] 같은 키워드 제외 로직 강화
     const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
     if (dongMatch) {
-      const extractedName = dongMatch[1].trim();
-      // 대문자만 있거나 비어있는 값은 제외 (예: CURRENT, TEMP 등 필터링)
-      if (extractedName && !/^[A-Z_]+$/.test(extractedName)) {
-        currentDong = extractedName;
+      const rawDong = dongMatch[1].trim();
+      // 시스템 내부 키워드([CURRENT], [A] 등)는 무시
+      const isSystemKey = PROJECTS.some(p => rawDong.toLowerCase().includes(p.key.toLowerCase()));
+      if (rawDong && !isSystemKey && rawDong.length < 50) { 
+        currentDong = rawDong;
         if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
         pState.data[currentDong] = pState.data[currentDong] || {};
         lastFloor = "";
@@ -96,9 +112,9 @@ function parseSheetData(rows, pState) {
 
     const fRaw = String(row[0]).trim();
     if (fRaw.includes("계") || fRaw.includes("공사명") || fRaw === "층" || fRaw === "") {
-        // 층 이름이 없어도 이전 층의 연속 행(row4 매칭행)으로 판단
     } else {
         lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
+        // PH나 FT도 층 데이터로 인정
         if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
     }
     
@@ -120,14 +136,12 @@ function parseSheetData(rows, pState) {
   }
 }
 
-/* 동 명칭 관리 (필터링 강화) */
 function initDongMapping() {
-  state.dongMap = {}; // 초기화
+  state.dongMap = {};
   PROJECTS.forEach(p => {
     state.projects[p.key].dongs.forEach(d => {
-      // 프로젝트 내부 키값이나 비정상적인 동 이름은 맵에 넣지 않음
-      if (d === "current" || d === "a" || d === "b" || d === "c") return;
-      
+      // 최종 필터링: 프로젝트 식별자와 일치하면 제거
+      if (PROJECTS.some(proj => proj.key === d.toLowerCase())) return;
       const key = `${p.key}::${d}`;
       state.dongMap[key] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
     });
@@ -136,20 +150,13 @@ function initDongMapping() {
 
 function renderDongUI() {
   const q = $("dong-search").value.toLowerCase();
-  const filteredKeys = Object.keys(state.dongMap).filter(k => k.toLowerCase().includes(q));
-  
-  if (filteredKeys.length === 0) {
-    dom.dongList.innerHTML = "<div style='padding:20px; color:#999; text-align:center;'>추출된 동 정보가 없습니다.</div>";
-    return;
-  }
-
-  dom.dongList.innerHTML = filteredKeys.sort().map(key => `
+  const keys = Object.keys(state.dongMap).filter(k => k.toLowerCase().includes(q));
+  dom.dongList.innerHTML = keys.sort().map(key => `
     <div class="dong-row">
       <div class="col-p-name"><strong>[${key.split("::")[0].toUpperCase()}]</strong> ${key.split("::")[1]}</div>
       <div style="width:40px; text-align:center; color:#ccc;">→</div>
       <div style="flex:1"><input class="dong-std-input" data-key="${key}" value="${state.dongMap[key]}" /></div>
     </div>`).join("");
-    
   document.querySelectorAll(".dong-std-input").forEach(el => {
     el.oninput = (e) => state.dongMap[e.target.dataset.key] = e.target.value.trim();
     applyNav(el);
@@ -173,7 +180,7 @@ function renderItemUI() {
   dom.itemList.innerHTML = state.mappingGroups.filter(g=>g.canonical.toLowerCase().includes(q)).map(g => `
     <div class="item-row">
       <div class="col-check"><input type="checkbox"></div>
-      <div class="col-orig">${PROJECTS.map(p=>`<span class="p-chip ${p.key}">${g.items[p.key][0]||'-'}</span>`).join("")}</div>
+      <div class="col-orig">${PROJECTS.map(p=>`<span class="p-chip ${p.key}" title="${g.items[p.key][0]||''}">${g.items[p.key][0]||'-'}</span>`).join("")}</div>
       <div class="col-edit"><input class="item-std-input" data-id="${g.id}" value="${g.canonical}" /></div>
       <div class="col-cat">
         <select class="item-cat-select" data-id="${g.id}">
@@ -202,10 +209,6 @@ function applyNav(el) {
 }
 
 $("btn-apply-all").onclick = () => {
-  if (Object.keys(state.dongMap).length === 0) {
-    alert("분석된 동 정보가 없습니다. 엑셀 파일을 다시 확인해주세요.");
-    return;
-  }
   state.mappedReady = true;
   const stdDongs = [...new Set(Object.values(state.dongMap))].filter(Boolean).sort();
   dom.filterDong.innerHTML = stdDongs.map(d => `<option value="${d}">${d}</option>`).join("");
@@ -241,7 +244,8 @@ function renderCompare() {
     }
   }));
 
-  unified.floors.sort((x,y) => (parseInt(x)||0) - (parseInt(y)||0));
+  // 커스텀 정렬 적용
+  unified.floors.sort(floorSorter);
   renderRatioBoard(unified);
 
   dom.compareList.innerHTML = Object.keys(unified.items).map(name => {
