@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QS 단일 프로젝트 분석기</title>
+  <title>QS 프로젝트 데이터 매니저</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar__title">
-        <h1>QS 단일 프로젝트 분석</h1>
-        <p>동별 대분류 및 층별 톤당 루베(Ton/m³) 정밀 분석 도구</p>
+        <h1>QS 프로젝트 분석 시스템</h1>
+        <p>단일 프로젝트 동별/층별 수량 및 톤당 루베 지표 분석</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
@@ -23,21 +23,22 @@
       <section class="tabs">
         <button class="tab is-active" data-tab="upload">1. 데이터 업로드</button>
         <button class="tab" data-tab="mapping">2. 아이템 분류 설정</button>
-        <button class="tab" data-tab="view">3. 동별 상세 수량표</button>
+        <button class="tab" data-tab="view">3. 엑셀 양식 수량표</button>
       </section>
 
       <section id="tab-upload" class="tab-panel is-active">
         <div class="panel">
           <div class="upload-box">
-            <h3>프로젝트 엑셀 업로드</h3>
-            <p>분석할 파일을 선택하세요. (여러 파일 동시 선택 가능)</p>
+            <div class="upload-box__icon">📊</div>
+            <h3>엑셀 파일 업로드</h3>
+            <p>분석할 프로젝트의 층별 집계표 파일을 선택하세요.</p>
             <label class="filebox">
               <input type="file" id="file-main" multiple onchange="updateFiles()"/>
               <span class="filebox__btn">파일 선택</span>
             </label>
             <div id="file-list" class="file-list"></div>
           </div>
-          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px; height:54px; font-size:16px;">데이터 정밀 분석 시작</button>
+          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:24px; height:56px; font-size:16px;">데이터 정밀 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
         </div>
       </section>
@@ -46,37 +47,34 @@
         <div class="panel">
           <div class="toolbar">
             <div class="toolbar__title">
-              <h3>아이템 분류 및 명칭 설정</h3>
-              <p>추출된 아이템의 중분류를 확인하세요. (예측 알고리즘 적용됨)</p>
+              <h3>항목별 분류 검토</h3>
+              <p>철근(TON), 콘크리트(M3), 거푸집(M2) 분류가 정확한지 확인해 주세요.</p>
             </div>
-            <button id="btn-apply" class="btn btn-primary" style="margin-left:auto;">설정 완료 및 수량표 생성</button>
+            <button id="btn-apply" class="btn btn-primary" style="margin-left:auto;">설정 적용 및 결과 생성</button>
           </div>
           <div class="list-header">
             <div style="width:60px; text-align:center;">번호</div>
-            <div style="flex:1; padding-left:10px;">추출된 원본 아이템 명칭</div>
-            <div style="width:250px;">표준화 명칭</div>
-            <div style="width:180px;">중분류 분류</div>
+            <div style="flex:1; padding-left:10px;">원본 아이템 명칭</div>
+            <div style="width:250px;">표준화 명칭 (변경 가능)</div>
+            <div style="width:180px;">분류 (중요)</div>
           </div>
-          <div id="mapping-list" class="mapping-list">
-            </div>
+          <div id="mapping-list" class="mapping-list"></div>
         </div>
       </section>
 
       <section id="tab-view" class="tab-panel">
         <div id="dong-summary" class="summary-container"></div>
-
         <div class="panel">
           <div class="toolbar">
             <div class="filter-group">
               <label>대분류(동) 선택:</label>
-              <select id="filter-dong" class="input" style="width:220px;"></select>
+              <select id="filter-dong" class="input" style="width:240px;"></select>
             </div>
-            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">Excel 내보내기</button>
+            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">템플릿 양식 Excel 다운로드</button>
           </div>
-          
           <div class="excel-view-container">
             <table id="main-excel-table" class="excel-table">
-              <thead><tr id="table-header-row"></tr></thead>
+              <thead id="table-head"></thead>
               <tbody id="table-body"></tbody>
             </table>
           </div>
@@ -87,8 +85,9 @@
   <script src="app.js"></script>
   <script>
     function updateFiles() {
-      const files = Array.from(document.getElementById('file-main').files);
-      document.getElementById('file-list').innerHTML = files.map(f=>`<span class="file-chip">${f.name}</span>`).join('');
+      const input = document.getElementById('file-main');
+      const list = document.getElementById('file-list');
+      list.innerHTML = Array.from(input.files).map(f=>`<span class="file-chip">${f.name}</span>`).join('');
     }
   </script>
 </body>
