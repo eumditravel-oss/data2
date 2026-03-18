@@ -23,12 +23,12 @@ const btnSaveMapping = $("btn-save-mapping");
 const mappingBody = $("mapping-body");
 const typeaheadRoot = $("typeahead-root");
 
-// UI Controls
+// UI 요소
 const controlsBar = $("controls-bar");
-const selectBuilding = $("select-building");
-const selectFloor = $("select-floor");
-const wrapFloor = $("wrap-floor");
-const sumOptions = $("sum-options");
+const modeRadios = document.querySelectorAll('input[name="compare-mode"]');
+const modeSingleUI = $("mode-single-ui");
+const modeSumUI = $("mode-sum-ui");
+const selectSection = $("select-section");
 const sumCheckboxes = $("sum-checkboxes");
 
 const PROJECT_KEYS = ["current", "A", "B", "C"];
@@ -41,7 +41,6 @@ const CATEGORY_OPTIONS = [
 const INCLUDE_OPTIONS = [ { value: "Y", label: "반영" }, { value: "N", label: "제외" } ];
 const DEFAULT_ITEM_CODE_OPTIONS = ["240", "270", "300", "180", "3회", "4회", "유로", "알폼", "갱폼", "합벽", "보밑면", "데크", "방수턱", "H10", "H13", "H16", "H19", "H22", "H25", "H29"];
 
-// 뼈대 레이아웃 (동/층은 동적으로 주입됨)
 const BASE_LAYOUT = [
   { itemCode: "240", item: "레미콘", spec: "25-24-15", category: "레미콘" },
   { itemCode: "270", item: "레미콘", spec: "25-27-15", category: "레미콘" },
@@ -69,8 +68,13 @@ const state = {
   rawEntriesByProject: { current: [], A: [], B: [], C: [] },
   uniqueNames: [], mappingConfig: {}, itemCodeOptions: [...DEFAULT_ITEM_CODE_OPTIONS],
   typeahead: { targetInput: null, targetKey: "", items: [], activeIndex: -1 },
-  buildings: [], floorsByBuilding: {}, 
-  activeBuilding: "", activeFloor: "", summationChecked: new Set()
+  
+  // UI 연동용 상태
+  buildings: [],        
+  allSections: [],      
+  compareMode: "single", // "single" | "sum"
+  activeSection: "",    
+  sumChecked: new Set() 
 };
 
 function setStatus(text) { statusBox.textContent = text; }
@@ -82,94 +86,86 @@ function toNumber(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const cleaned = String(value ?? "").replace(/,/g, "").trim();
   if (!cleaned) return 0;
-  const n = Number(cleaned); return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(Number(cleaned)) ? Number(cleaned) : 0;
 }
 function fmtNumber(value) { return Number(value || 0).toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
 function fmtRatio(value) { return (!value && value !== 0) ? "0%" : (Number(value) * 100).toFixed(0) + "%"; }
 function ratioClass(value) { if (!value) return ""; if (value < 0.9) return "bad"; if (value <= 1.1) return "good"; return "warn"; }
+
 function updateFileListText() {
   for (const key of PROJECT_KEYS) {
     const files = Array.from(fileInputs[key].files || []);
-    if (!files.length) { fileListEls[key].textContent = "선택된 파일 없음"; continue; }
-    fileListEls[key].textContent = files.map((f) => f.name).join("\n");
+    fileListEls[key].textContent = files.length ? files.map(f => f.name).join("\n") : "선택된 파일 없음";
   }
 }
+
 function openModal() { mappingModal.classList.add("is-open"); mappingModal.setAttribute("aria-hidden", "false"); }
 function closeModal() { mappingModal.classList.remove("is-open"); mappingModal.setAttribute("aria-hidden", "true"); hideTypeahead(); }
 function sortUniqueStrings(list) { return [...new Set(list.filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")); }
 function ensureItemCodeOption(value) {
   const text = normalizeDisplayText(value);
-  if (!text) return;
-  if (!state.itemCodeOptions.includes(text)) { state.itemCodeOptions.push(text); state.itemCodeOptions = sortUniqueStrings(state.itemCodeOptions); }
+  if (text && !state.itemCodeOptions.includes(text)) {
+    state.itemCodeOptions.push(text); state.itemCodeOptions = sortUniqueStrings(state.itemCodeOptions);
+  }
 }
 
 /** -----------------------------
- * 핵심 로직: 엑셀 파싱 (2행 묶음 매칭 및 동 추출)
+ * 핵심 로직: 셀 병합 2행 단위 층별 파싱
  * ----------------------------- */
-function parseSheetEntries(rows, projectKey, fileName, sheetName) {
-  // 1. 0~3행 안에서 "동"으로 끝나는 텍스트를 찾아 건물 이름으로 지정 (없으면 시트명 사용)
-  let buildingName = normalizeDisplayText(sheetName);
-  for(let r=0; r<4; r++) {
-    if(!rows[r]) continue;
-    for(let c=0; c<10; c++) {
-      let val = normalizeDisplayText(rows[r][c]);
-      if(val && val.endsWith("동")) { buildingName = val; break; }
-    }
-  }
-
-  const headerRow3 = rows[2] || []; // 노란색 타이틀
-  const headerRow4 = rows[3] || []; // 주황색 타이틀
-  const colStart = 1; 
+function parseSheetEntries(rows, projectKey, fileName) {
+  const headerRow3 = rows[2] || []; 
+  const headerRow4 = rows[3] || []; 
+  const colStart = 3; // 보통 데이터는 D열(인덱스 3)부터 시작
   const colEnd = Math.max(headerRow3.length, headerRow4.length) - 1;
   const entries = [];
-  const skipHeaders = ["합계", "비고", "누계", "소계", ""];
 
-  let currentFloor = "";
-  
-  // 2. 5행(데이터 시작)부터 아래로 읽으며 층과 2줄 묶음 처리
-  for(let r=4; r<rows.length; r++) {
-    let row1 = rows[r] || [];
-    let col0 = normalizeDisplayText(row1[0]);
-    let col1 = normalizeDisplayText(row1[1]);
-    let possibleFloor = col0 || col1;
+  let curBldg = "";
+  let curFloor = "";
 
-    // 첫 칸에 텍스트가 있다면 층이 시작되는 첫 번째 줄(3행 타이틀에 대응)
-    if(possibleFloor) {
-      // "계" -> "합계"로 변환
-      if(possibleFloor === "계" || possibleFloor === "층 계" || possibleFloor.includes("합계")) {
-        currentFloor = "합계";
-      } else {
-        currentFloor = possibleFloor;
-      }
+  for (let r = 5; r < rows.length; r++) {
+    let row = rows[r] || [];
+    if (row.length === 0) continue;
 
-      if(!state.floorsByBuilding[buildingName]) state.floorsByBuilding[buildingName] = new Set();
-      state.floorsByBuilding[buildingName].add(currentFloor);
+    let c0 = normalizeDisplayText(row[0]); // 동
+    let c1 = normalizeDisplayText(row[1]); // 층
+    let c2 = normalizeDisplayText(row[2]); // 수량합계, 면적합계 등
 
-      // (A) 첫 번째 줄: 3행 타이틀과 매칭하여 데이터 추출
-      for(let c=colStart; c<=colEnd; c++) {
-        let name3 = normalizeDisplayText(headerRow3[c]);
-        if(name3 && !skipHeaders.includes(name3)) {
-          let val = toNumber(row1[c]);
-          if(val !== 0) entries.push({ projectKey, building: buildingName, floor: currentFloor, rawName: name3, normalizedName: normalizeText(name3), qty: val });
-        }
-      }
+    // 아래로 내려가며 동/층 이름 채우기 (병합 풀기 효과)
+    if (c0) curBldg = c0;
+    if (c1) curFloor = c1;
 
-      // (B) 두 번째 줄(병합된 층의 아래칸): 4행 타이틀과 매칭
-      if(r+1 < rows.length) {
-        let row2 = rows[r+1] || [];
-        let nextCol0 = normalizeDisplayText(row2[0]);
-        let nextCol1 = normalizeDisplayText(row2[1]);
-        // 다음 줄의 첫 칸이 비어있다면 병합된 것으로 간주하고 파싱 진행
-        if(!nextCol0 && !nextCol1) {
-          for(let c=colStart; c<=colEnd; c++) {
-            let name4 = normalizeDisplayText(headerRow4[c]);
-            if(name4 && !skipHeaders.includes(name4)) {
-              let val = toNumber(row2[c]);
-              if(val !== 0) entries.push({ projectKey, building: buildingName, floor: currentFloor, rawName: name4, normalizedName: normalizeText(name4), qty: val });
-            }
-          }
-          r++; // 두 번째 줄까지 처리했으므로 루프 건너뛰기
-        }
+    if (!curBldg && !curFloor) continue;
+
+    // '계', '총합계' 등 합계 단어 감지 및 정리
+    let fName = curFloor;
+    if (c0.includes("계") || c1.includes("계") || c2.includes("소계")) {
+      fName = "합계";
+    }
+    if (curBldg.includes("총") || curBldg.includes("전체")) {
+      curBldg = "전체";
+      fName = "합계";
+    }
+
+    let secName = `${curBldg} ${fName}`.trim();
+
+    for (let c = colStart; c <= colEnd; c++) {
+      let n3 = normalizeDisplayText(headerRow3[c]);
+      let n4 = normalizeDisplayText(headerRow4[c]);
+      
+      let targetName = "";
+      // 💡 핵심: 1행(수량합계)이면 3행 타이틀, 2행(면적합계)이면 4행 타이틀 강제 매칭
+      if (c2.includes("수량")) targetName = n3;
+      else if (c2.includes("면적")) targetName = n4;
+      else targetName = n3 || n4; // 예외 시 있는 값 우선
+
+      if (!targetName) continue;
+
+      let val = toNumber(row[c]);
+      if (val !== 0) {
+        entries.push({
+          projectKey, building: curBldg, floor: fName, section: secName,
+          rawName: targetName, normalizedName: normalizeText(targetName), qty: val
+        });
       }
     }
   }
@@ -180,10 +176,11 @@ async function parseWorkbookFile(file, projectKey) {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
   const allEntries = []; let totalEntryCount = 0; 
+
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
-    const entries = parseSheetEntries(rows, projectKey, file.name, sheetName);
+    const entries = parseSheetEntries(rows, projectKey, file.name);
     allEntries.push(...entries);
     totalEntryCount += entries.length;
   }
@@ -191,82 +188,53 @@ async function parseWorkbookFile(file, projectKey) {
 }
 
 /** -----------------------------
- * UI 및 컨트롤러 업데이트 로직
+ * UI 연동 (라디오버튼, 드롭다운, 체크박스 제어)
  * ----------------------------- */
 function updateControlsUI() {
   controlsBar.style.display = "block";
-  selectBuilding.innerHTML = "";
   
-  // 1. 건물(동) 드롭다운 채우기
-  state.buildings.forEach(b => {
-    const opt = document.createElement("option");
-    opt.value = b; opt.textContent = b;
-    if(state.activeBuilding === b) opt.selected = true;
-    selectBuilding.appendChild(opt);
-  });
-  
-  // 전체 합산 옵션 추가
-  const sumOpt = document.createElement("option");
-  sumOpt.value = "SUM_MODE"; sumOpt.textContent = "➡ 선택 동 합산 (전체 합계)";
-  if(state.activeBuilding === "SUM_MODE") sumOpt.selected = true;
-  selectBuilding.appendChild(sumOpt);
-
-  // 2. 모드에 따른 층 선택 UI 조작
-  if(state.activeBuilding === "SUM_MODE") {
-    wrapFloor.style.display = "none";
-    sumOptions.style.display = "block";
+  if (state.compareMode === "single") {
+    modeSingleUI.style.display = "block";
+    modeSumUI.style.display = "none";
     
-    // 체크박스 렌더링
+    selectSection.innerHTML = "";
+    state.allSections.forEach(sec => {
+      const opt = document.createElement("option");
+      opt.value = sec; opt.textContent = sec;
+      if(state.activeSection === sec) opt.selected = true;
+      selectSection.appendChild(opt);
+    });
+  } else {
+    modeSingleUI.style.display = "none";
+    modeSumUI.style.display = "block";
+
     sumCheckboxes.innerHTML = state.buildings.map(b => `
-      <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
-        <input type="checkbox" value="${b}" class="sum-chk" ${state.summationChecked.has(b) ? 'checked' : ''}>
+      <label style="display:flex; align-items:center; gap:6px; font-size:14px; cursor:pointer; background:#fff; padding:6px 12px; border:1px solid #cbd5e1; border-radius:20px;">
+        <input type="checkbox" value="${b}" class="sum-chk" ${state.sumChecked.has(b) ? 'checked' : ''} style="width:16px; height:16px;">
         ${b}
       </label>
     `).join("");
 
     document.querySelectorAll(".sum-chk").forEach(chk => {
       chk.addEventListener("change", (e) => {
-        if(e.target.checked) state.summationChecked.add(e.target.value);
-        else state.summationChecked.delete(e.target.value);
+        if(e.target.checked) state.sumChecked.add(e.target.value);
+        else state.sumChecked.delete(e.target.value);
         triggerRecalc();
       });
-    });
-
-  } else {
-    wrapFloor.style.display = "flex";
-    sumOptions.style.display = "none";
-    
-    // 층 드롭다운 채우기 (해당 동에 있는 층들만)
-    selectFloor.innerHTML = "";
-    const floors = Array.from(state.floorsByBuilding[state.activeBuilding] || []);
-    
-    // "합계"가 있으면 맨 위로, 나머지는 1층, 2층 오름차순 정렬
-    floors.sort((a,b) => {
-      if(a==="합계") return -1; if(b==="합계") return 1;
-      return a.localeCompare(b, "ko", {numeric:true});
-    });
-
-    if(floors.length > 0 && !floors.includes(state.activeFloor)) {
-      state.activeFloor = floors[0];
-    }
-
-    floors.forEach(f => {
-      const opt = document.createElement("option");
-      opt.value = f; opt.textContent = f;
-      if(state.activeFloor === f) opt.selected = true;
-      selectFloor.appendChild(opt);
     });
   }
 }
 
-selectBuilding.addEventListener("change", (e) => {
-  state.activeBuilding = e.target.value;
-  updateControlsUI();
-  triggerRecalc();
+modeRadios.forEach(radio => {
+  radio.addEventListener("change", (e) => {
+    state.compareMode = e.target.value;
+    updateControlsUI();
+    triggerRecalc();
+  });
 });
 
-selectFloor.addEventListener("change", (e) => {
-  state.activeFloor = e.target.value;
+selectSection.addEventListener("change", (e) => {
+  state.activeSection = e.target.value;
   triggerRecalc();
 });
 
@@ -277,7 +245,7 @@ function triggerRecalc() {
 }
 
 /** -----------------------------
- * 명칭 매핑 등 기본 로직 (생략없이 포함)
+ * 명칭 매핑 및 제안 (기존과 동일)
  * ----------------------------- */
 function suggestMappingByName(rawName) {
   const t = normalizeText(rawName);
@@ -331,25 +299,16 @@ function ensureMappingConfig() {
 }
 
 function optionHtml(list, selectedValue) {
-  return list.map((opt) => {
-    const selected = String(opt.value) === String(selectedValue) ? "selected" : "";
-    return `<option value="${escapeHtml(opt.value)}" ${selected}>${escapeHtml(opt.label)}</option>`;
-  }).join("");
+  return list.map((opt) => `<option value="${escapeHtml(opt.value)}" ${String(opt.value) === String(selectedValue) ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("");
 }
 
 function getCategoryClass(category) {
-  if (category === "레미콘") return "is-concrete";
-  if (category === "거푸집") return "is-form";
-  if (category === "철근") return "is-rebar";
-  return "is-exclude";
+  if (category === "레미콘") return "is-concrete"; if (category === "거푸집") return "is-form"; if (category === "철근") return "is-rebar"; return "is-exclude";
 }
 function getRowIncludeClass(include) { return include === "Y" ? "is-included" : "is-excluded"; }
 
 function renderMappingTable() {
-  if (!state.uniqueNames.length) {
-    mappingBody.innerHTML = `<tr><td colspan="5">추출된 명칭이 없습니다.</td></tr>`;
-    return;
-  }
+  if (!state.uniqueNames.length) { mappingBody.innerHTML = `<tr><td colspan="5">추출된 명칭이 없습니다.</td></tr>`; return; }
   const html = state.uniqueNames.map((item) => {
     const config = state.mappingConfig[item.normalizedName] || suggestMappingByName(item.rawName);
     const suggestion = suggestMappingByName(item.rawName);
@@ -372,14 +331,10 @@ function renderMappingTable() {
 }
 
 function applyVisualStateToRow(row) {
-  const includeSelect = row.querySelector(".map-include");
-  const categorySelect = row.querySelector(".map-category");
-  const include = includeSelect?.value || "N";
-  const category = categorySelect?.value || "";
-  row.classList.remove("is-included", "is-excluded");
-  row.classList.add(include === "Y" ? "is-included" : "is-excluded");
-  categorySelect.classList.remove("is-concrete", "is-form", "is-rebar", "is-exclude");
-  categorySelect.classList.add(getCategoryClass(category));
+  const includeSelect = row.querySelector(".map-include"); const categorySelect = row.querySelector(".map-category");
+  const include = includeSelect?.value || "N"; const category = categorySelect?.value || "";
+  row.classList.remove("is-included", "is-excluded"); row.classList.add(include === "Y" ? "is-included" : "is-excluded");
+  categorySelect.classList.remove("is-concrete", "is-form", "is-rebar", "is-exclude"); categorySelect.classList.add(getCategoryClass(category));
 }
 
 function bindMappingRowBehaviors() {
@@ -427,6 +382,9 @@ function applyAutoSuggestionsToCurrentMapping() {
   renderMappingTable();
 }
 
+/** -----------------------------
+ * 타입어헤드 자동완성 (생략없이)
+ * ----------------------------- */
 function getFilteredItemCodeOptions(keyword, forceAll = false) {
   const q = normalizeText(keyword); const list = sortUniqueStrings(state.itemCodeOptions);
   if (forceAll || !q) return list.slice(0, 200);
@@ -437,7 +395,7 @@ function getFilteredItemCodeOptions(keyword, forceAll = false) {
 function positionTypeahead(input) { const rect = input.getBoundingClientRect(); const width = Math.max(rect.width, 240); typeaheadRoot.style.left = `${rect.left + window.scrollX}px`; typeaheadRoot.style.top = `${rect.bottom + window.scrollY + 4}px`; typeaheadRoot.style.width = `${width}px`; }
 function renderTypeahead(items) {
   state.typeahead.items = items; state.typeahead.activeIndex = items.length ? 0 : -1;
-  if (!items.length) { typeaheadRoot.innerHTML = `<div class="typeahead-empty">일치하는 항목이 없습니다. 직접 입력 후 추가할 수 있습니다.</div>`; return; }
+  if (!items.length) { typeaheadRoot.innerHTML = `<div class="typeahead-empty">일치하는 항목이 없습니다.</div>`; return; }
   typeaheadRoot.innerHTML = `<div class="typeahead-list">${items.map((item, idx) => `<button type="button" class="typeahead-item ${idx === 0 ? "is-active" : ""}" data-index="${idx}">${escapeHtml(item)}</button>`).join("")}</div>`;
   Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((btn) => { btn.addEventListener("mousedown", (e) => e.preventDefault()); btn.addEventListener("click", () => commitTypeaheadSelection(Number(btn.dataset.index))); });
 }
@@ -463,7 +421,7 @@ function commitManualItemCode(nameKey, input, text) {
 function clearDataState() {
   state.rawEntriesByProject = { current: [], A: [], B: [], C: [] };
   state.uniqueNames = []; state.mappingConfig = {}; state.lastCompareRows = []; state.itemCodeOptions = [...DEFAULT_ITEM_CODE_OPTIONS];
-  state.buildings = []; state.floorsByBuilding = {}; state.activeBuilding = ""; state.activeFloor = ""; state.summationChecked.clear();
+  state.buildings = []; state.allSections = []; state.activeSection = ""; state.sumChecked.clear();
 }
 
 async function extractNamesFromFiles() {
@@ -480,25 +438,38 @@ async function extractNamesFromFiles() {
   }
   if (!totalFileCount) throw new Error("업로드된 파일이 없습니다.");
   
-  // 데이터에서 존재하는 고유 동(Building) 추출
-  const buildingSet = new Set();
-  PROJECT_KEYS.forEach(pk => state.rawEntriesByProject[pk].forEach(e => buildingSet.add(e.building)));
-  state.buildings = Array.from(buildingSet).sort();
-  
-  if(state.buildings.length > 0) {
-    state.activeBuilding = state.buildings[0];
-    state.buildings.forEach(b => state.summationChecked.add(b)); // 전체 동 기본 선택
-  }
+  // 데이터에서 존재하는 고유 동 및 동/층 콤보 추출
+  const bldgSet = new Set();
+  const secSet = new Set();
+
+  PROJECT_KEYS.forEach(pk => {
+    state.rawEntriesByProject[pk].forEach(e => {
+      if (e.building && e.building !== "전체") bldgSet.add(e.building);
+      secSet.add(e.section);
+    });
+  });
+
+  state.buildings = Array.from(bldgSet).sort();
+  state.buildings.forEach(b => state.sumChecked.add(b)); // 기본적으로 다중합산 시 모두 체크
+
+  // 섹션 정렬 (합계가 있는 것을 위로, 나머지는 숫자 순)
+  state.allSections = Array.from(secSet).sort((a, b) => {
+    if (a.includes("합계") && !b.includes("합계")) return -1;
+    if (!a.includes("합계") && b.includes("합계")) return 1;
+    return a.localeCompare(b, "ko", {numeric:true});
+  });
+
+  if(state.allSections.length > 0) state.activeSection = state.allSections[0];
 
   buildUniqueNamesFromEntries(); ensureMappingConfig();
-  updateControlsUI(); // 동/층 선택 UI 업데이트
+  updateControlsUI();
   
   btnOpenMapping.disabled = state.uniqueNames.length === 0; btnCalc.disabled = state.uniqueNames.length === 0;
   setLog(logs.join("\n") || "로그가 없습니다."); setStatus(`명칭 추출 완료: ${state.uniqueNames.length}개`);
 }
 
 /** -----------------------------
- * 핵심 로직: 비교표 계산 (선택된 UI 모드에 따라 필터 및 합산)
+ * 핵심 로직: 비교표 계산 (모드에 따른 조건부 합산)
  * ----------------------------- */
 function getMappedEntriesByProject() {
   const result = { current: [], A: [], B: [], C: [] };
@@ -515,14 +486,15 @@ function getMappedEntriesByProject() {
 function calcCompareRows() {
   const mappedEntries = getMappedEntriesByProject();
   
-  // 데이터를 [키: 동__층__카테고리__아이템코드] 로 합산 생성
+  // 모든 데이터를 키로 묶어놓기
   const agg = { current: {}, A: {}, B: {}, C: {} };
   const allDynamicKeys = new Set();
   const hardcodedKeys = new Set(BASE_LAYOUT.map(r => `__${r.category}__${r.itemCode}`));
 
   for (const pk of PROJECT_KEYS) {
     for (const entry of mappedEntries[pk]) {
-      const key = `${entry.building}__${entry.floor}__${entry.mappedCategory}__${entry.mappedItemCode}`;
+      // 키 포맷: 1동 합계__레미콘__240
+      const key = `${entry.section}__${entry.mappedCategory}__${entry.mappedItemCode}`;
       agg[pk][key] = (agg[pk][key] || 0) + entry.qty;
       
       if (!hardcodedKeys.has(`__${entry.mappedCategory}__${entry.mappedItemCode}`)) {
@@ -532,30 +504,28 @@ function calcCompareRows() {
   }
 
   const rows = [];
-  const b = state.activeBuilding;
-  const f = state.activeFloor;
-  const isSumMode = (b === "SUM_MODE");
+  const isSumMode = state.compareMode === "sum";
+  const secTitle = isSumMode ? `다중 동 합산 (${Array.from(state.sumChecked).join(", ")})` : state.activeSection;
 
-  const secTitle = isSumMode ? "선택 동 통합 합계" : `${b} - ${f}`;
   rows.push({ type: "section", section: secTitle });
 
   const categoryOrder = ["레미콘", "거푸집", "철근"];
 
-  // 1. 하드코딩된 레이아웃 순회
+  // 지정된 양식(레미콘, 거푸집, 철근) 순서대로 렌더링
   for (const cat of categoryOrder) {
     const hardcodedForCat = BASE_LAYOUT.filter(r => r.category === cat);
+    
+    // 1. 하드코딩 항목 먼저 추가
     for (const row of hardcodedForCat) {
       let cur = 0, A = 0, B = 0, C = 0;
       
       if (isSumMode) {
-        // 합산 모드: 선택된 모든 동의 "합계" 층만 싹 긁어서 더함
-        for(const chk of state.summationChecked) {
-          const key = `${chk}__합계__${cat}__${row.itemCode}`;
+        for(const bldg of state.sumChecked) {
+          const key = `${bldg} 합계__${cat}__${row.itemCode}`;
           cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
         }
       } else {
-        // 개별 출력 모드: 현재 선택된 동과 층의 데이터만 가져옴
-        const key = `${b}__${f}__${cat}__${row.itemCode}`;
+        const key = `${state.activeSection}__${cat}__${row.itemCode}`;
         cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
       }
 
@@ -563,7 +533,7 @@ function calcCompareRows() {
       rows.push({ ...row, section: secTitle, current: cur, A, B, C, avg, ratio, note: row.note || "" });
     }
 
-    // 2. 사용자가 추가한 다이나믹 항목 이어서 순회
+    // 2. 사용자가 추가한 항목을 해당 카테고리 맨 밑에 찰싹 붙임
     for (const dynKey of allDynamicKeys) {
       const parts = dynKey.split("__");
       if (parts[0] === cat) {
@@ -571,12 +541,12 @@ function calcCompareRows() {
         let cur = 0, A = 0, B = 0, C = 0;
         
         if (isSumMode) {
-          for(const chk of state.summationChecked) {
-            const key = `${chk}__합계__${cat}__${ic}`;
+          for(const bldg of state.sumChecked) {
+            const key = `${bldg} 합계__${cat}__${ic}`;
             cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
           }
         } else {
-          const key = `${b}__${f}__${cat}__${ic}`;
+          const key = `${state.activeSection}__${cat}__${ic}`;
           cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
         }
 
@@ -595,7 +565,8 @@ function renderCompareTable(rows) {
     compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">비교표가 아직 생성되지 않았습니다.</td></tr>`;
     return;
   }
-  // 섹션 라인 제거하고 순수 데이터만 출력 (표 타이틀은 고정)
+  
+  // 화면에는 섹션 라인을 숨기고 순수 데이터 행만 표출 (헤더는 이미 HTML에 고정되어 있음)
   const filteredRows = rows.filter(r => r.type !== "section");
   const html = filteredRows.map((row) => {
     return `
@@ -632,7 +603,7 @@ function validateBeforeCalc() {
 
 
 /** -----------------------------
- * 엑셀 다운로드 (갑지 양식 & 현재 화면 동기화)
+ * 엑셀 다운로드 (갑지 양식 100% 동일 복제, 현재 보고 있는 데이터만 즉시 추출)
  * ----------------------------- */
 function exportCompareExcel() {
   if (!state.lastCompareRows.length) { setStatus("내보낼 비교표가 없습니다."); return; }
@@ -659,9 +630,11 @@ function exportCompareExcel() {
   let r = 2; 
   state.lastCompareRows.forEach((row) => {
     if (row.type === "section") {
+      // 층 간 띄어쓰기 공백행
       for (let c = 0; c < 10; c++) ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: "", t: "s" };
       rowsFormat[r] = { hpt: 12 }; r++;
 
+      // 타이틀행 (B열에 이름, 연두색 배경)
       for (let c = 0; c < 10; c++) {
         let val = c === 1 ? row.section : "";
         ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: val, t: "s", s: sectionStyle };
@@ -711,7 +684,7 @@ btnOpenMapping.addEventListener("click", () => { renderMappingTable(); openModal
 btnCloseMapping.addEventListener("click", closeModal); mappingBackdrop.addEventListener("click", closeModal);
 btnApplySuggestions.addEventListener("click", () => { applyAutoSuggestionsToCurrentMapping(); });
 btnSaveMapping.addEventListener("click", () => { saveMappingFromUI(); closeModal(); setStatus("명칭 설정 저장 완료"); });
-btnCalc.addEventListener("click", () => { try { if (mappingModal.classList.contains("is-open")) saveMappingFromUI(); validateBeforeCalc(); const rows = calcCompareRows(); renderCompareTable(rows); btnExportCsv.disabled = rows.length === 0; setStatus("비교표 생성 완료"); } catch (error) { console.error(error); setStatus("오류 발생"); setLog(error?.message || String(error)); } });
+btnCalc.addEventListener("click", () => { try { if (mappingModal.classList.contains("is-open")) saveMappingFromUI(); validateBeforeCalc(); triggerRecalc(); btnExportCsv.disabled = false; setStatus("비교표 생성 완료"); } catch (error) { console.error(error); setStatus("오류 발생"); setLog(error?.message || String(error)); } });
 btnExportCsv.addEventListener("click", exportCompareExcel);
 btnReset.addEventListener("click", resetAll);
 
