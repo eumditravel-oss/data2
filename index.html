@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>비교표 웹앱 (층별 집계 모드)</title>
+  <title>비교표 웹앱 (스마트 층별 집계)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,15 +11,16 @@
     <header class="hero">
       <div class="hero__inner">
         <div>
-          <h1>비교표 웹앱 (층별 집계 모드)</h1>
+          <h1>비교표 웹앱 (스마트 층별 집계)</h1>
           <p class="hero__desc">
-            층별로 병합된 셀(1행: 3행 타이틀, 2행: 4행 타이틀)을 자동 매칭합니다.<br>
-            동(건물)과 층을 선택하여 개별 비교하거나, 원하는 동을 합산하여 비교할 수 있습니다.
+            층별로 병합된 셀을 자동으로 인식합니다. (1행 ➜ 3행 타이틀 값, 2행 ➜ 4행 타이틀 값)<br>
+            동과 층을 한눈에 선택하여 비교하거나, 원하는 동들만 자유롭게 합산할 수 있습니다.
           </p>
         </div>
         <div class="hero__meta">
-          <span class="badge">층별 2행 묶음 파싱</span>
-          <span class="badge">선택 동 다중 합산 지원</span>
+          <span class="badge">동·층 통합 선택</span>
+          <span class="badge">다중 동 합산 지원</span>
+          <span class="badge">갑지 엑셀 자동출력</span>
         </div>
       </div>
     </header>
@@ -27,37 +28,36 @@
     <main class="main-grid">
       <section class="panel upload-panel">
         <div class="panel__head">
-          <h2>1. 분석표B 업로드</h2>
-          <p>각 프로젝트 파일을 업로드합니다.</p>
+          <h2>1. 분석표 데이터 업로드</h2>
+          <p>프로젝트별 층별총집계표 파일을 업로드합니다.</p>
         </div>
 
         <div class="upload-list">
           <div class="upload-card">
-            <div class="upload-card__top"><strong>현재 프로젝트</strong><span>여러 파일 선택 가능</span></div>
+            <div class="upload-card__top"><strong>현재 프로젝트</strong><span>여러 파일 가능</span></div>
             <input id="file-current" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-current-list">선택된 파일 없음</div>
           </div>
           <div class="upload-card">
-            <div class="upload-card__top"><strong>A 프로젝트</strong><span>여러 파일 선택 가능</span></div>
+            <div class="upload-card__top"><strong>A 프로젝트</strong><span>여러 파일 가능</span></div>
             <input id="file-a" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-a-list">선택된 파일 없음</div>
           </div>
           <div class="upload-card">
-            <div class="upload-card__top"><strong>B 프로젝트</strong><span>여러 파일 선택 가능</span></div>
+            <div class="upload-card__top"><strong>B 프로젝트</strong><span>여러 파일 가능</span></div>
             <input id="file-b" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-b-list">선택된 파일 없음</div>
           </div>
           <div class="upload-card">
-            <div class="upload-card__top"><strong>C 프로젝트</strong><span>여러 파일 선택 가능</span></div>
+            <div class="upload-card__top"><strong>C 프로젝트</strong><span>여러 파일 가능</span></div>
             <input id="file-c" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-c-list">선택된 파일 없음</div>
           </div>
         </div>
 
         <div class="panel__head panel__head--sub">
-          <h2>2. 명칭 처리 기준</h2>
+          <h2>2. 명칭 매핑 기준</h2>
         </div>
-
         <div class="actions">
           <button id="btn-extract" class="btn btn--primary">명칭 추출</button>
           <button id="btn-open-mapping" class="btn" disabled>명칭 설정 열기</button>
@@ -72,24 +72,27 @@
 
       <section class="panel result-panel">
         <div class="panel__head">
-          <h2>비교표 결과</h2>
-          <p>원하는 동과 층을 선택하거나, 여러 동을 합산하여 확인하세요.</p>
+          <h2>비교표 결과 확인</h2>
+          <p>비교할 방식을 선택하고 원하는 데이터를 바로 확인하세요.</p>
         </div>
 
-        <div id="controls-bar" style="margin-bottom: 15px; padding: 15px; background: #f8fbff; border-radius: 10px; border: 1px solid #dbeafe; display: none;">
-          <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 10px;">
-            <label style="display:flex; align-items:center; gap:8px;">
-              <strong style="font-size: 14px;">건물(동) 선택:</strong>
-              <select id="select-building" class="map-include" style="min-width: 140px; padding: 6px; border-radius: 6px; border: 1px solid #97a3b9;"></select>
-            </label>
-            <label id="wrap-floor" style="display:flex; align-items:center; gap:8px;">
-              <strong style="font-size: 14px;">층 선택:</strong>
-              <select id="select-floor" class="map-include" style="min-width: 140px; padding: 6px; border-radius: 6px; border: 1px solid #97a3b9;"></select>
+        <div id="controls-bar" style="margin-bottom: 15px; padding: 16px; background: #f8fbff; border-radius: 12px; border: 1px solid #dbeafe; display: none;">
+          
+          <div style="margin-bottom: 14px; font-weight: bold; color: #1d4ed8; font-size: 15px; display: flex; gap: 24px;">
+            <label style="cursor: pointer;"><input type="radio" name="compare-mode" value="single" checked style="margin-right: 6px;"> 🏢 개별 동/층 비교</label>
+            <label style="cursor: pointer;"><input type="radio" name="compare-mode" value="sum" style="margin-right: 6px;"> ➕ 다중 동 합산 비교</label>
+          </div>
+
+          <div id="mode-single-ui">
+            <label style="display:flex; align-items:center; gap:10px;">
+              <strong style="font-size: 14px; color: #374151;">조회 대상 선택:</strong>
+              <select id="select-section" class="map-include" style="min-width: 220px; padding: 8px; border-radius: 8px; border: 1px solid #97a3b9; font-weight: bold;"></select>
             </label>
           </div>
-          <div id="sum-options" style="display: none; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
-            <strong style="font-size: 14px; color: #1d4ed8;">☑ 합산할 동 선택 (선택한 동들의 '합계' 층만 묶어서 합산합니다)</strong>
-            <div id="sum-checkboxes" style="display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap;"></div>
+
+          <div id="mode-sum-ui" style="display: none;">
+            <div style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">합산할 건물을 모두 체크해 주세요. (각 건물의 '합계' 층 데이터가 모두 더해집니다)</div>
+            <div id="sum-checkboxes" style="display: flex; gap: 14px; flex-wrap: wrap;"></div>
           </div>
         </div>
 
