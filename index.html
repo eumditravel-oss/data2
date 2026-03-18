@@ -2,8 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QS 프로젝트 비교표 Pro</title>
+  <title>QS 프로젝트 비교표 Pro (Ton/m³ 분석)</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
@@ -12,11 +11,9 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 비교표</h1>
-        <p>프로젝트별 수량을 비교하고 층별 콘/철 비율을 분석합니다.</p>
+        <p>철근(Ton) 및 콘크리트(m³) 데이터를 기반으로 층별 비율을 정밀 분석합니다.</p>
       </div>
-      <div class="topbar__actions">
-        <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
-      </div>
+      <div class="topbar__actions"><button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button></div>
     </header>
 
     <main class="page">
@@ -29,28 +26,12 @@
       <section id="tab-upload" class="tab-panel is-active">
         <div class="panel">
           <div class="upload-grid">
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>현재 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-current" multiple onchange="updateFiles('current')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-current" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 A</strong></div>
-              <label class="filebox"><input type="file" id="file-a" multiple onchange="updateFiles('a')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-a" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 B</strong></div>
-              <label class="filebox"><input type="file" id="file-b" multiple onchange="updateFiles('b')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-b" class="file-list"></div>
-            </div>
-            <div class="upload-card">
-              <div class="upload-card__head"><strong>유사 C</strong></div>
-              <label class="filebox"><input type="file" id="file-c" multiple onchange="updateFiles('c')"/><span class="filebox__btn">파일 선택</span></label>
-              <div id="list-c" class="file-list"></div>
-            </div>
+            <div class="upload-card"><strong>현재 프로젝트</strong><input type="file" id="file-current" multiple onchange="updateFiles('current')"/><div id="list-current" class="file-list"></div></div>
+            <div class="upload-card"><strong>유사 A</strong><input type="file" id="file-a" multiple onchange="updateFiles('a')"/><div id="list-a" class="file-list"></div></div>
+            <div class="upload-card"><strong>유사 B</strong><input type="file" id="file-b" multiple onchange="updateFiles('b')"/><div id="list-b" class="file-list"></div></div>
+            <div class="upload-card"><strong>유사 C</strong><input type="file" id="file-c" multiple onchange="updateFiles('c')"/><div id="list-c" class="file-list"></div></div>
           </div>
-          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px;">데이터 분석 및 예측 시작</button>
+          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px;">엑셀 정밀 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
         </div>
       </section>
@@ -63,11 +44,6 @@
           </div>
           <div id="sub-dong" class="sub-panel is-active">
             <div class="toolbar"><input type="text" id="dong-search" class="input" placeholder="동 명칭 검색..." style="width:300px;" /></div>
-            <div class="list-header">
-              <div style="flex:1; padding-left:16px;">프로젝트별 원본 동 명칭</div>
-              <div style="width:40px; text-align:center;">→</div>
-              <div style="flex:1; padding-left:16px;">표준 동 명칭</div>
-            </div>
             <div class="mapping-list" id="dong-mapping-list"></div>
           </div>
           <div id="sub-item" class="sub-panel">
@@ -75,37 +51,27 @@
               <input type="text" id="mapping-search" class="input" placeholder="아이템 검색..." style="width:300px;" />
               <button id="btn-apply-all" class="btn btn-primary" style="margin-left:auto;">설정 완료 및 비교표 생성</button>
             </div>
-            <div class="list-header">
-              <div class="col-check">선택</div>
-              <div class="col-orig">프로젝트별 원본</div>
-              <div class="col-edit">통일명</div>
-              <div class="col-cat">중분류</div>
-            </div>
+            <div class="list-header"><div class="col-check">선택</div><div class="col-orig">프로젝트별 원본</div><div class="col-edit">통일명</div><div class="col-cat">중분류</div></div>
             <div id="mapping-group-list" class="mapping-list"></div>
           </div>
         </div>
       </section>
 
       <section id="tab-compare" class="tab-panel">
-        <div class="panel ratio-analysis-panel">
-          <div class="panel__head">
-            <h2 style="font-size:18px; margin:0 0 10px;">층별 지표 분석 (콘크리트 1m³당 철근 kg)</h2>
-            <p style="font-size:13px; color:var(--muted); margin:0;">※ 중분류가 '콘크리트', '철근'으로 설정된 아이템들을 기준으로 자동 계산됩니다.</p>
-          </div>
-          <div id="floor-ratio-board" class="compare-card__body" style="border:1px solid var(--line); border-radius:10px;"></div>
+        <div class="panel" style="border-left: 5px solid #e67e22; background: #fffcf9;">
+          <h3 style="margin-top:0;">층별 철근 비율 분석 (Ton / m³)</h3>
+          <div id="floor-ratio-board" class="compare-card__body" style="border:1px solid #ddd; border-radius:8px; background:#fff;"></div>
         </div>
-
         <div class="panel">
           <div class="toolbar">
             <select id="filter-dong" class="input"></select>
             <select id="filter-category" class="input">
               <option value="all">중분류 전체</option>
               <option value="콘크리트">콘크리트</option>
-              <option value="거푸집">거푸집</option>
               <option value="철근">철근</option>
+              <option value="거푸집">거푸집</option>
               <option value="잡/기타">잡/기타</option>
             </select>
-            <input type="text" id="filter-item" class="input" placeholder="아이템명 검색..." />
           </div>
           <div id="compare-card-list"></div>
         </div>
