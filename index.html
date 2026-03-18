@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 비교표</h1>
-        <p>프로젝트별 수량을 비교하고 중분류별로 필터링합니다.</p>
+        <p>프로젝트별 수량을 비교하고 대/중분류를 설정합니다.</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost">초기화</button>
@@ -34,7 +34,7 @@
               <label class="filebox">
                 <input type="file" id="file-current" multiple />
                 <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-current">선택된 파일 없음</span>
+                <span id="name-current">선택된 파일 없음</span>
               </label>
               <div id="list-current" class="file-list"></div>
             </div>
@@ -43,7 +43,7 @@
               <label class="filebox">
                 <input type="file" id="file-a" multiple />
                 <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-a">선택된 파일 없음</span>
+                <span id="name-a">선택된 파일 없음</span>
               </label>
               <div id="list-a" class="file-list"></div>
             </div>
@@ -52,7 +52,7 @@
               <label class="filebox">
                 <input type="file" id="file-b" multiple />
                 <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-b">선택된 파일 없음</span>
+                <span id="name-b">선택된 파일 없음</span>
               </label>
               <div id="list-b" class="file-list"></div>
             </div>
@@ -61,13 +61,13 @@
               <label class="filebox">
                 <input type="file" id="file-c" multiple />
                 <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-c">선택된 파일 없음</span>
+                <span id="name-c">선택된 파일 없음</span>
               </label>
               <div id="list-c" class="file-list"></div>
             </div>
           </div>
           <div class="panel__foot">
-            <button id="btn-parse" class="btn btn-primary">EXCEL 읽기 및 아이템 추출</button>
+            <button id="btn-parse" class="btn btn-primary">EXCEL 분석 시작</button>
           </div>
           <div id="upload-status" class="status-box"></div>
         </div>
@@ -78,7 +78,9 @@
           <div class="panel__head">
             <div class="toolbar">
               <input type="text" id="mapping-search" class="input" placeholder="아이템 검색" />
-              <button id="btn-apply-mapping" class="btn btn-primary">통일명 및 분류 적용</button>
+              <button id="btn-merge-groups" class="btn btn-secondary">선택 그룹 병합</button>
+              <button id="btn-split-items" class="btn btn-secondary">선택 아이템 분리</button>
+              <button id="btn-apply-mapping" class="btn btn-primary">설정 완료 및 적용</button>
             </div>
           </div>
           <div id="mapping-group-list" class="mapping-group-list"></div>
@@ -90,6 +92,13 @@
         <div class="panel">
           <div class="panel__head">
             <div class="toolbar toolbar-wrap">
+              <select id="filter-type" class="input">
+                <option value="all">대분류 전체</option>
+                <option value="APT">APT</option>
+                <option value="PIT">PIT</option>
+                <option value="주차장">주차장</option>
+                <option value="부속동">부속동</option>
+              </select>
               <select id="filter-dong" class="input"></select>
               <select id="filter-category" class="input">
                 <option value="all">중분류 전체</option>
@@ -98,11 +107,9 @@
                 <option value="철근">철근</option>
                 <option value="잡/기타">잡/기타</option>
               </select>
-              <input type="text" id="filter-item" class="input" placeholder="아이템 검색" />
             </div>
           </div>
           <div id="compare-card-list" class="compare-card-list"></div>
-          <div id="compare-status" class="status-box"></div>
         </div>
       </section>
     </main>
