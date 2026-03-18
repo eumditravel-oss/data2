@@ -9,23 +9,13 @@ const PROJECTS = [
 const CATEGORIES = ["콘크리트", "거푸집", "철근", "잡/기타"];
 
 const state = {
-  projects: { current: createEmpty(), a: createEmpty(), b: createEmpty(), c: createEmpty() },
+  projects: { current: emptyState(), a: emptyState(), b: emptyState(), c: emptyState() },
   mappingGroups: [],
-  mappings: {}, // { key: { canonical, category } }
-  parsedReady: false,
+  mappings: {},
   mappedReady: false
 };
 
-function createEmpty() { return { files: [], rawItems: [], dongs: [], floors: [], data: {} }; }
-
-// 자동 분류 함수 (요청하신 기준)
-function determineCategory(name) {
-  const s = String(name).toUpperCase();
-  if (s.includes("H") || s.includes("D")) return "철근";
-  if (s.includes("MPA") || /^\d+$/.test(s) || /\d+-\d+-\d+/.test(s)) return "콘크리트";
-  if (/[가-힣]/.test(s)) return "거푸집";
-  return "잡/기타";
-}
+function emptyState() { return { files: [], rawItems: [], dongs: [], floors: [], data: {} }; }
 
 const $ = (id) => document.getElementById(id);
 const dom = {
@@ -33,6 +23,7 @@ const dom = {
   tabPanels: { upload: $("tab-upload"), mapping: $("tab-mapping"), compare: $("tab-compare") },
   fileInputs: { current: $("file-current"), a: $("file-a"), b: $("file-b"), c: $("file-c") },
   fileNames: { current: $("name-current"), a: $("name-a"), b: $("name-b"), c: $("name-c") },
+  fileLists: { current: $("list-current"), a: $("list-a"), b: $("list-b"), c: $("list-c") }, // 파일 목록 영역 추가 
   btnParse: $("btn-parse"),
   uploadStatus: $("upload-status"),
   mappingSearch: $("mapping-search"),
@@ -42,12 +33,33 @@ const dom = {
   filterCategory: $("filter-category"),
   filterItem: $("filter-item"),
   filterMode: $("filter-mode"),
-  summaryCards: $("summary-cards"),
-  compareCardList: $("compare-card-list"),
-  compareStatus: $("compare-status")
+  compareCardList: $("compare-card-list")
 };
 
-// --- 기존 탭 및 파일 UI 로직 유지 ---
+/* 파일 업로드 시 화면에 파일 이름 표시  */
+function renderFileUI(key) {
+  const files = state.projects[key].files;
+  dom.fileNames[key].textContent = files.length ? `${files.length}개 파일 선택됨` : "선택된 파일 없음";
+  dom.fileLists[key].innerHTML = files.map(f => `<span class="file-chip">${f.name}</span>`).join("");
+}
+
+PROJECTS.forEach(({key}) => {
+  dom.fileInputs[key].onchange = (e) => {
+    state.projects[key].files = [...e.target.files];
+    renderFileUI(key); // 파일 이름 칩 생성 호출 
+  };
+});
+
+/* 자동 분류 엔진  */
+function determineCategory(name) {
+  const s = String(name).toUpperCase();
+  if (s.includes("H") || s.includes("D")) return "철근";
+  if (s.includes("MPA") || /^\d+$/.test(s) || /\d+-\d+-\d+/.test(s)) return "콘크리트";
+  if (/[가-힣]/.test(s)) return "거푸집";
+  return "잡/기타";
+}
+
+/* 탭 제어 */
 dom.tabs.forEach(tab => {
   tab.onclick = () => {
     dom.tabs.forEach(b => b.classList.remove("is-active"));
@@ -56,41 +68,37 @@ dom.tabs.forEach(tab => {
   };
 });
 
-PROJECTS.forEach(({key}) => {
-  dom.fileInputs[key].onchange = (e) => {
-    state.projects[key].files = [...e.target.files];
-    dom.fileNames[key].textContent = `${e.target.files.length}개 파일 선택됨`;
-  };
-});
-
-// --- 기존 파싱 로직 유지 ---
+/* 파싱 로직  */
 dom.btnParse.onclick = async () => {
   dom.uploadStatus.textContent = "엑셀 분석 중...";
-  for (const {key} of PROJECTS) {
-    const pState = createEmpty();
-    for (const file of state.projects[key].files) {
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: "array" });
-      wb.SheetNames.forEach(sn => {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-        const parsed = parseSheet(rows);
-        mergeData(pState, parsed);
-      });
+  try {
+    for (const {key} of PROJECTS) {
+      const pState = emptyState();
+      for (const file of state.projects[key].files) {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: "array" });
+        wb.SheetNames.forEach(sn => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
+          const parsed = parseSheet(rows);
+          mergeData(pState, parsed);
+        });
+      }
+      state.projects[key] = pState;
     }
-    state.projects[key] = pState;
-  }
-  buildMappingGroups();
-  renderMappingGroups();
-  dom.uploadStatus.textContent = "분석 완료!";
-  dom.tabs[1].click();
+    buildGroups();
+    renderGroups();
+    dom.uploadStatus.textContent = "분석 완료!";
+    dom.tabs[1].click();
+  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; }
 };
 
 function parseSheet(rows) {
-  const res = createEmpty();
+  const res = emptyState();
   let dong = "", floor = "", prevF = null, sameCnt = 0;
   const r3 = rows[2] || [], r4 = rows[3] || [];
   for (let r = 4; r < rows.length; r++) {
-    const txt = rows[r].join("|");
+    const row = rows[r];
+    const txt = row.join("|");
     const m = txt.match(/\[([^\]]+)\]/);
     if (m) {
       dong = m[1].trim();
@@ -98,18 +106,17 @@ function parseSheet(rows) {
       res.data[dong] = {}; floor = ""; sameCnt = 0; continue;
     }
     if (!dong) continue;
-    const fRaw = String(rows[r][0]).trim();
+    const fRaw = String(row[0]).trim();
     if (fRaw !== "") {
       floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
       if (!res.floors.includes(floor)) res.floors.push(floor);
       sameCnt = (prevF === floor) ? sameCnt + 1 : 1;
       prevF = floor;
     } else if (floor) sameCnt++;
-    else continue;
     const head = (sameCnt % 2 === 1) ? r3 : r4;
-    for (let c = 1; c < rows[r].length; c++) {
+    for (let c = 1; c < row.length; c++) {
       const item = String(head[c] || "").trim();
-      const val = parseFloat(String(rows[r][c]).replace(/,/g, ""));
+      const val = parseFloat(String(row[c]).replace(/,/g, ""));
       if (!item || isNaN(val)) continue;
       if (!res.rawItems.includes(item)) res.rawItems.push(item);
       if (!res.data[dong][item]) res.data[dong][item] = {};
@@ -134,8 +141,7 @@ function mergeData(target, source) {
   }
 }
 
-// --- 그룹화 및 렌더링 (중분류 select 추가) ---
-function buildMappingGroups() {
+function buildGroups() {
   const grouped = new Map();
   PROJECTS.forEach(p => {
     state.projects[p.key].rawItems.forEach(raw => {
@@ -144,65 +150,50 @@ function buildMappingGroups() {
         grouped.set(sig, {
           groupId: Math.random().toString(36).substr(2, 9),
           canonical: raw,
-          category: determineCategory(raw), // 자동 분류
-          itemsByProject: { current: [], a: [], b: [], c: [] }
+          category: determineCategory(raw),
+          items: { current: [], a: [], b: [], c: [] }
         });
       }
-      grouped.get(sig).itemsByProject[p.key].push(raw);
+      const g = grouped.get(sig);
+      if (!g.items[p.key].includes(raw)) g.items[p.key].push(raw);
     });
   });
   state.mappingGroups = [...grouped.values()];
 }
 
-function renderMappingGroups() {
+function renderGroups() {
   const q = dom.mappingSearch.value.toLowerCase();
   dom.mappingGroupList.innerHTML = state.mappingGroups
     .filter(g => g.canonical.toLowerCase().includes(q))
     .map(group => `
       <div class="mapping-group-card">
         <div class="mapping-group-card__top">
-          <div class="mapping-group-card__left">
-            <div class="mapping-group-card__title">${group.canonical}</div>
-          </div>
+          <div class="mapping-group-card__left"><strong>${group.canonical}</strong></div>
           <div class="mapping-group-card__right">
-            <div class="mapping-canonical">
-              <label>중분류 / 통일명</label>
-              <div style="display:flex; gap:5px;">
-                <select class="group-category-select" onchange="updateCat('${group.groupId}', this.value)">
-                  ${CATEGORIES.map(c => `<option value="${c}" ${group.category === c ? 'selected' : ''}>${c}</option>`).join("")}
-                </select>
-                <input class="group-canonical-input" value="${group.canonical}" oninput="updateName('${group.groupId}', this.value)" style="flex:1" />
-              </div>
-            </div>
+            <select onchange="updateCat('${group.groupId}', this.value)">
+              ${CATEGORIES.map(c => `<option value="${c}" ${group.category === c ? 'selected' : ''}>${c}</option>`).join("")}
+            </select>
           </div>
         </div>
         <div class="mapping-project-grid">
-          ${PROJECTS.map(p => `
-            <div class="mapping-project-col ${p.key}">
-              <div class="mapping-project-col__head">${p.name}</div>
-              <div class="mapping-project-col__body">
-                ${group.itemsByProject[p.key].map(i => `<span class="mapping-item-chip">${i}</span>`).join("") || '-'}
-              </div>
-            </div>
-          `).join("")}
+          ${PROJECTS.map(p => `<div class="mapping-project-col ${p.key}">
+            <div class="mapping-project-col__head">${p.name}</div>
+            <div class="mapping-project-col__body">${group.items[p.key].join(", ") || '-'}</div>
+          </div>`).join("")}
         </div>
-      </div>
-    `).join("");
+      </div>`).join("");
 }
 
 window.updateCat = (id, val) => { state.mappingGroups.find(g => g.groupId === id).category = val; };
-window.updateName = (id, val) => { state.mappingGroups.find(g => g.groupId === id).canonical = val; };
-dom.mappingSearch.oninput = renderMappingGroups;
+dom.mappingSearch.oninput = renderGroups;
 
-// --- 비교표 적용 및 렌더링 (필터 로직 추가) ---
+/* 비교표 렌더링 (A,B,C 상세 수량 포함)  */
 dom.btnApplyMapping.onclick = () => {
   state.mappings = {};
   state.mappingGroups.forEach(g => {
-    PROJECTS.forEach(p => {
-      g.itemsByProject[p.key].forEach(raw => {
-        state.mappings[`${p.key}::${raw}`] = { canonical: g.canonical, category: g.category };
-      });
-    });
+    PROJECTS.forEach(p => { g.items[p.key].forEach(raw => {
+      state.mappings[`${p.key}::${raw}`] = { canonical: g.canonical, category: g.category };
+    }); });
   });
   state.mappedReady = true;
   const dongs = [...new Set(PROJECTS.flatMap(p => state.projects[p.key].dongs))].sort();
@@ -211,22 +202,19 @@ dom.btnApplyMapping.onclick = () => {
   dom.tabs[2].click();
 };
 
-[dom.filterDong, dom.filterCategory, dom.filterMode].forEach(el => el.onchange = renderCompare);
-dom.filterItem.oninput = renderCompare;
+[dom.filterDong, dom.filterCategory].forEach(el => el.onchange = renderCompare);
 
 function renderCompare() {
   if (!state.mappedReady) return;
   const dong = dom.filterDong.value;
   const cat = dom.filterCategory.value;
-  const keyw = dom.filterItem.value.toLowerCase();
-  
   const unified = { floors: [], items: {} };
+
   PROJECTS.forEach(p => {
     const dData = state.projects[p.key].data[dong] || {};
     for (const raw in dData) {
       const m = state.mappings[`${p.key}::${raw}`];
-      if (!m || (cat !== 'all' && m.category !== cat) || (keyw && !m.canonical.toLowerCase().includes(keyw))) continue;
-      
+      if (!m || (cat !== 'all' && m.category !== cat)) continue;
       if (!unified.items[m.canonical]) unified.items[m.canonical] = {};
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
@@ -246,8 +234,11 @@ function renderCompare() {
           <table class="compare-matrix">
             <thead><tr><th>구분</th>${unified.floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
             <tbody>
-              <tr><td>현재</td>${unified.floors.map(f=>`<td>${(vals[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr style="background:#f9f9f9;"><td>유사평균</td>${unified.floors.map(f=>{
+              <tr class="row-current"><td>현재 프로젝트</td>${unified.floors.map(f=>`<td>${(vals[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
+              <tr><td>유사 A</td>${unified.floors.map(f=>`<td>${(vals[f]?.a||0).toLocaleString()}</td>`).join("")}</tr>
+              <tr><td>유사 B</td>${unified.floors.map(f=>`<td>${(vals[f]?.b||0).toLocaleString()}</td>`).join("")}</tr>
+              <tr><td>유사 C</td>${unified.floors.map(f=>`<td>${(vals[f]?.c||0).toLocaleString()}</td>`).join("")}</tr>
+              <tr style="background:#f4f7fd; font-weight:bold;"><td>유사 평균</td>${unified.floors.map(f=>{
                 const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
                 return `<td>${avg.toLocaleString(undefined, {maximumFractionDigits:1})}</td>`;
               }).join("")}</tr>
@@ -255,5 +246,5 @@ function renderCompare() {
           </table>
         </div>
       </div>`;
-  }).join("") || "검색 결과 없음";
+  }).join("") || "데이터 없음";
 }
