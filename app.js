@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================
-   기본 상태
+   상태
 ========================= */
 const PROJECTS = [
   { key: "current", name: "현재 프로젝트" },
@@ -17,7 +17,8 @@ const state = {
     b: createEmptyProjectState(),
     c: createEmptyProjectState()
   },
-  mappings: {},           // rawKey => canonicalName
+  mappingGroups: [],       // [{groupId, signature, suggested, canonical, itemsByProject}]
+  mappings: {},            // rawKey => canonicalName
   parsedReady: false,
   mappedReady: false
 };
@@ -25,10 +26,10 @@ const state = {
 function createEmptyProjectState() {
   return {
     files: [],
-    rawItems: [],         // 원본 아이템명 목록
-    dongs: [],            // 동 목록
-    floors: [],           // 층 목록
-    data: {}              // data[dong][rawItem][floor] = value
+    rawItems: [],
+    dongs: [],
+    floors: [],
+    data: {}
   };
 }
 
@@ -68,35 +69,29 @@ const dom = {
 
   btnParse: $("btn-parse"),
   btnReset: $("btn-reset"),
-
   uploadStatus: $("upload-status"),
 
-  mappingProjects: $("mapping-projects"),
-  mappingTbody: $("mapping-tbody"),
-  mappingStatus: $("mapping-status"),
   mappingSearch: $("mapping-search"),
   btnAutofill: $("btn-autofill"),
   btnApplyMapping: $("btn-apply-mapping"),
+  mappingGroupList: $("mapping-group-list"),
+  mappingStatus: $("mapping-status"),
   canonicalOptions: $("canonical-options"),
 
   filterDong: $("filter-dong"),
   filterItem: $("filter-item"),
   filterMode: $("filter-mode"),
   btnRenderCompare: $("btn-render-compare"),
-  compareThead: $("compare-thead"),
-  compareTbody: $("compare-tbody"),
-  compareStatus: $("compare-status"),
-  summaryCards: $("summary-cards")
+  summaryCards: $("summary-cards"),
+  compareCardList: $("compare-card-list"),
+  compareStatus: $("compare-status")
 };
 
 /* =========================
-   탭 전환
+   탭
 ========================= */
 dom.tabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    const target = tab.dataset.tab;
-    setActiveTab(target);
-  });
+  tab.addEventListener("click", () => setActiveTab(tab.dataset.tab));
 });
 
 function setActiveTab(tabKey) {
@@ -107,7 +102,7 @@ function setActiveTab(tabKey) {
 }
 
 /* =========================
-   파일 선택 UI
+   파일 UI
 ========================= */
 PROJECTS.forEach(({ key }) => {
   dom.fileInputs[key].addEventListener("change", (e) => {
@@ -119,10 +114,7 @@ PROJECTS.forEach(({ key }) => {
 
 function renderFileUI(projectKey) {
   const files = state.projects[projectKey].files;
-  dom.fileNames[projectKey].textContent = files.length
-    ? `${files.length}개 파일 선택됨`
-    : "선택된 파일 없음";
-
+  dom.fileNames[projectKey].textContent = files.length ? `${files.length}개 파일 선택됨` : "선택된 파일 없음";
   dom.fileLists[projectKey].innerHTML = files.length
     ? files.map(f => `<span class="file-chip">${escapeHtml(f.name)}</span>`).join("")
     : "";
@@ -138,25 +130,24 @@ dom.btnReset.addEventListener("click", () => {
     renderFileUI(key);
   });
 
+  state.mappingGroups = [];
   state.mappings = {};
   state.parsedReady = false;
   state.mappedReady = false;
 
   dom.uploadStatus.textContent = "";
-  dom.mappingProjects.innerHTML = "";
-  dom.mappingTbody.innerHTML = `<tr><td colspan="4" class="empty">업로드 후 아이템을 추출하면 여기에 표시됩니다.</td></tr>`;
+  dom.mappingGroupList.innerHTML = "";
   dom.mappingStatus.textContent = "";
   dom.filterDong.innerHTML = "";
-  dom.compareThead.innerHTML = "";
-  dom.compareTbody.innerHTML = `<tr><td class="empty">비교할 데이터를 먼저 준비해 주세요.</td></tr>`;
-  dom.compareStatus.textContent = "";
   dom.summaryCards.innerHTML = "";
+  dom.compareCardList.innerHTML = `<div class="empty-box">비교할 데이터를 먼저 준비해 주세요.</div>`;
+  dom.compareStatus.textContent = "";
 
   setActiveTab("upload");
 });
 
 /* =========================
-   EXCEL 읽기 / 파싱
+   업로드 및 파싱
 ========================= */
 dom.btnParse.addEventListener("click", async () => {
   const hasAny = PROJECTS.some(({ key }) => state.projects[key].files.length > 0);
@@ -187,8 +178,8 @@ dom.btnParse.addEventListener("click", async () => {
     state.parsedReady = true;
     state.mappedReady = false;
 
-    renderMappingProjectLists();
-    renderMappingTable();
+    buildMappingGroups();
+    renderMappingGroupList();
     populateCanonicalDatalist();
 
     const statusLines = PROJECTS.map(({ key, name }) => {
@@ -197,7 +188,6 @@ dom.btnParse.addEventListener("click", async () => {
     });
 
     dom.uploadStatus.textContent = "업로드 및 아이템 추출이 완료되었습니다.\n" + statusLines.join("\n");
-
     setActiveTab("mapping");
   } catch (err) {
     console.error(err);
@@ -220,7 +210,6 @@ async function parseExcelFile(file) {
     const ws = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
     const mergedRows = applyMerges(rows, ws["!merges"] || []);
-
     const parsedSheet = parseWorksheetRows(mergedRows);
     mergeParsedProject(aggregated, parsedSheet);
   }
@@ -236,7 +225,6 @@ function applyMerges(rows, merges) {
     const endRow = merge.e.r;
     const startCol = merge.s.c;
     const endCol = merge.e.c;
-
     const topLeftValue = (((grid[startRow] || [])[startCol]) ?? "");
 
     for (let r = startRow; r <= endRow; r++) {
@@ -262,7 +250,6 @@ function parseWorksheetRows(rows) {
 
   if (!rows || rows.length < 5) return result;
 
-  // 엑셀 기준 3행, 4행
   const row3 = rows[2] || [];
   const row4 = rows[3] || [];
 
@@ -275,7 +262,6 @@ function parseWorksheetRows(rows) {
     const row = rows[r] || [];
     const rowText = row.map(v => String(v ?? "").trim()).join(" | ");
 
-    // 동 인식: [101동] 형태
     const dongMatch = rowText.match(/\[([^\]]+)\]/);
     if (dongMatch) {
       currentDong = dongMatch[1].trim();
@@ -296,26 +282,21 @@ function parseWorksheetRows(rows) {
       currentFloor = floorCandidate;
       pushUnique(result.floors, currentFloor);
 
-      if (previousFloor === currentFloor) {
-        sameFloorCount += 1;
-      } else {
+      if (previousFloor === currentFloor) sameFloorCount += 1;
+      else {
         sameFloorCount = 1;
         previousFloor = currentFloor;
       }
     } else if (!currentFloor) {
       continue;
     } else {
-      // A열이 비었는데 병합 해제 상황일 수 있어 이전 층 유지
-      if (previousFloor === currentFloor) {
-        sameFloorCount += 1;
-      } else {
+      if (previousFloor === currentFloor) sameFloorCount += 1;
+      else {
         sameFloorCount = 1;
         previousFloor = currentFloor;
       }
     }
 
-    // floor 당 2행 구조
-    // 1행차 = 3행 아이템, 2행차 = 4행 아이템
     const itemRowSource = sameFloorCount % 2 === 1 ? row3 : row4;
 
     for (let c = 1; c < row.length; c++) {
@@ -361,105 +342,176 @@ function mergeParsedProject(target, parsed) {
 }
 
 /* =========================
-   아이템 통일 설정
+   아이템 그룹화
 ========================= */
-function renderMappingProjectLists() {
-  dom.mappingProjects.innerHTML = PROJECTS.map(({ key, name }) => {
-    const items = state.projects[key].rawItems || [];
-    const body = items.length
-      ? items.map(item => `<div class="item-badge">${escapeHtml(item)}</div>`).join("")
-      : `<div class="item-badge">아이템 없음</div>`;
+function buildMappingGroups() {
+  const grouped = new Map();
 
+  PROJECTS.forEach(({ key }) => {
+    const items = state.projects[key].rawItems || [];
+    items.forEach(rawItem => {
+      const signature = makeItemSignature(rawItem);
+      if (!grouped.has(signature)) {
+        grouped.set(signature, {
+          groupId: signature,
+          signature,
+          suggested: suggestCanonicalName(rawItem),
+          canonical: suggestCanonicalName(rawItem),
+          itemsByProject: {
+            current: [],
+            a: [],
+            b: [],
+            c: []
+          }
+        });
+      }
+      grouped.get(signature).itemsByProject[key].push(rawItem);
+    });
+  });
+
+  state.mappingGroups = [...grouped.values()]
+    .map(group => {
+      group.canonical = chooseBestCanonical(group);
+      return group;
+    })
+    .sort((a, b) => a.canonical.localeCompare(b.canonical, "ko"));
+
+  state.mappings = {};
+  state.mappingGroups.forEach(group => {
+    PROJECTS.forEach(({ key }) => {
+      group.itemsByProject[key].forEach(rawItem => {
+        state.mappings[makeRawKey(key, rawItem)] = group.canonical;
+      });
+    });
+  });
+}
+
+function makeItemSignature(rawItem) {
+  const s = String(rawItem || "").toUpperCase().trim();
+  return s
+    .replace(/\s+/g, "")
+    .replace(/[_\-]/g, "")
+    .replace(/[(){}\[\]]/g, "")
+    .replace(/\/+/g, "/")
+    .replace(/MPA/g, "MPA")
+    .replace(/WH빔/g, "WHB")
+    .replace(/빔/g, "B")
+    .replace(/합벽/g, "합벽")
+    .replace(/CURVED/g, "CURVED");
+}
+
+function chooseBestCanonical(group) {
+  const all = [
+    ...group.itemsByProject.current,
+    ...group.itemsByProject.a,
+    ...group.itemsByProject.b,
+    ...group.itemsByProject.c
+  ];
+  if (!all.length) return group.suggested;
+  return uniqueSort(all, (x, y) => String(x).length - String(y).length || String(x).localeCompare(String(y), "ko"))[0];
+}
+
+function renderMappingGroupList() {
+  const q = dom.mappingSearch.value.trim().toLowerCase();
+
+  const groups = state.mappingGroups.filter(group => {
+    const texts = [
+      group.canonical,
+      ...group.itemsByProject.current,
+      ...group.itemsByProject.a,
+      ...group.itemsByProject.b,
+      ...group.itemsByProject.c
+    ].join(" ").toLowerCase();
+
+    return !q || texts.includes(q);
+  });
+
+  if (!groups.length) {
+    dom.mappingGroupList.innerHTML = `<div class="empty-box">업로드 후 아이템 그룹이 여기에 표시됩니다.</div>`;
+    return;
+  }
+
+  dom.mappingGroupList.innerHTML = groups.map(group => {
     return `
-      <div class="project-item-card">
-        <div class="project-item-card__head">${escapeHtml(name)}</div>
-        <div class="project-item-card__body">${body}</div>
+      <div class="mapping-group-card">
+        <div class="mapping-group-card__top">
+          <div class="mapping-group-card__left">
+            <div class="mapping-group-card__title">${escapeHtml(group.canonical)}</div>
+            <div class="mapping-group-card__meta">
+              유사 아이템을 한 그룹으로 묶었습니다. 이 그룹의 모든 아이템은 아래 통일명으로 적용됩니다.
+            </div>
+          </div>
+          <div class="mapping-group-card__right">
+            <div class="mapping-canonical">
+              <label>통일 아이템명</label>
+              <input
+                class="group-canonical-input"
+                data-groupid="${escapeHtmlAttr(group.groupId)}"
+                list="canonical-options"
+                value="${escapeHtmlAttr(group.canonical)}"
+                placeholder="통일 아이템명 입력"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="mapping-project-grid">
+          ${renderMappingProjectColumn("current", "현재 프로젝트", group.itemsByProject.current)}
+          ${renderMappingProjectColumn("a", "A 프로젝트", group.itemsByProject.a)}
+          ${renderMappingProjectColumn("b", "B 프로젝트", group.itemsByProject.b)}
+          ${renderMappingProjectColumn("c", "C 프로젝트", group.itemsByProject.c)}
+        </div>
       </div>
     `;
   }).join("");
+
+  bindGroupCanonicalInputs();
 }
 
-function renderMappingTable() {
-  const rows = [];
+function renderMappingProjectColumn(projectKey, title, items) {
+  const body = items.length
+    ? items.map(item => `<span class="mapping-item-chip">${escapeHtml(item)}</span>`).join("")
+    : `<span class="mapping-item-chip is-empty">해당 없음</span>`;
 
-  PROJECTS.forEach(({ key, name }) => {
-    const rawItems = state.projects[key].rawItems || [];
-    rawItems.forEach(rawItem => {
-      const rawKey = makeRawKey(key, rawItem);
-      const suggested = suggestCanonicalName(rawItem);
-      const mapped = state.mappings[rawKey] ?? suggested;
+  return `
+    <div class="mapping-project-col ${projectKey}">
+      <div class="mapping-project-col__head">${escapeHtml(title)}</div>
+      <div class="mapping-project-col__body">${body}</div>
+    </div>
+  `;
+}
 
-      rows.push({
-        projectKey: key,
-        projectName: name,
-        rawItem,
-        rawKey,
-        suggested,
-        mapped
+function bindGroupCanonicalInputs() {
+  document.querySelectorAll(".group-canonical-input").forEach(input => {
+    input.addEventListener("input", (e) => {
+      const groupId = e.target.dataset.groupid;
+      const group = state.mappingGroups.find(g => g.groupId === groupId);
+      if (!group) return;
+      group.canonical = e.target.value.trim();
+
+      PROJECTS.forEach(({ key }) => {
+        group.itemsByProject[key].forEach(rawItem => {
+          state.mappings[makeRawKey(key, rawItem)] = group.canonical;
+        });
+      });
+    });
+  });
+}
+
+dom.mappingSearch.addEventListener("input", renderMappingGroupList);
+
+dom.btnAutofill.addEventListener("click", () => {
+  state.mappingGroups.forEach(group => {
+    group.canonical = chooseBestCanonical(group);
+    PROJECTS.forEach(({ key }) => {
+      group.itemsByProject[key].forEach(rawItem => {
+        state.mappings[makeRawKey(key, rawItem)] = group.canonical;
       });
     });
   });
 
-  if (!rows.length) {
-    dom.mappingTbody.innerHTML = `<tr><td colspan="4" class="empty">업로드 후 아이템을 추출하면 여기에 표시됩니다.</td></tr>`;
-    return;
-  }
-
-  const q = dom.mappingSearch.value.trim().toLowerCase();
-
-  const filtered = rows.filter(row =>
-    !q ||
-    row.projectName.toLowerCase().includes(q) ||
-    row.rawItem.toLowerCase().includes(q) ||
-    row.suggested.toLowerCase().includes(q) ||
-    String(row.mapped).toLowerCase().includes(q)
-  );
-
-  dom.mappingTbody.innerHTML = filtered.length
-    ? filtered.map(row => `
-      <tr>
-        <td>${escapeHtml(row.projectName)}</td>
-        <td>${escapeHtml(row.rawItem)}</td>
-        <td>${escapeHtml(row.suggested)}</td>
-        <td>
-          <input
-            class="mapping-input"
-            data-rawkey="${escapeHtml(row.rawKey)}"
-            list="canonical-options"
-            value="${escapeHtmlAttr(row.mapped)}"
-            placeholder="통일할 아이템명 입력"
-          />
-        </td>
-      </tr>
-    `).join("")
-    : `<tr><td colspan="4" class="empty">검색 결과가 없습니다.</td></tr>`;
-
-  bindMappingInputs();
-}
-
-function bindMappingInputs() {
-  dom.mappingTbody.querySelectorAll(".mapping-input").forEach(input => {
-    input.addEventListener("input", (e) => {
-      const rawKey = e.target.dataset.rawkey;
-      state.mappings[rawKey] = e.target.value.trim();
-    });
-  });
-}
-
-dom.mappingSearch.addEventListener("input", renderMappingTable);
-
-dom.btnAutofill.addEventListener("click", () => {
-  PROJECTS.forEach(({ key }) => {
-    (state.projects[key].rawItems || []).forEach(rawItem => {
-      const rawKey = makeRawKey(key, rawItem);
-      if (!state.mappings[rawKey]) {
-        state.mappings[rawKey] = suggestCanonicalName(rawItem);
-      }
-    });
-  });
-
-  renderMappingTable();
-  dom.mappingStatus.textContent = "자동 제안명으로 통일명을 채웠습니다. 필요하면 수정 후 적용해 주세요.";
+  renderMappingGroupList();
+  dom.mappingStatus.textContent = "유사 아이템 그룹 기준으로 통일명을 자동 채웠습니다.";
 });
 
 dom.btnApplyMapping.addEventListener("click", () => {
@@ -468,49 +520,32 @@ dom.btnApplyMapping.addEventListener("click", () => {
     return;
   }
 
-  // 빈값 보정
-  PROJECTS.forEach(({ key }) => {
-    (state.projects[key].rawItems || []).forEach(rawItem => {
-      const rawKey = makeRawKey(key, rawItem);
-      if (!state.mappings[rawKey] || !state.mappings[rawKey].trim()) {
-        state.mappings[rawKey] = suggestCanonicalName(rawItem);
-      }
+  state.mappingGroups.forEach(group => {
+    if (!group.canonical || !group.canonical.trim()) {
+      group.canonical = chooseBestCanonical(group);
+    }
+    PROJECTS.forEach(({ key }) => {
+      group.itemsByProject[key].forEach(rawItem => {
+        state.mappings[makeRawKey(key, rawItem)] = group.canonical;
+      });
     });
   });
 
   state.mappedReady = true;
+  populateCanonicalDatalist();
   populateDongFilter();
   renderSummaryCards();
-  renderCompareTable();
+  renderCompareCards();
 
   dom.mappingStatus.textContent = "아이템 통일명이 적용되었습니다.";
   setActiveTab("compare");
 });
 
 function populateCanonicalDatalist() {
-  const allNames = [];
-
-  PROJECTS.forEach(({ key }) => {
-    (state.projects[key].rawItems || []).forEach(rawItem => {
-      pushUnique(allNames, suggestCanonicalName(rawItem));
-    });
-  });
-
-  dom.canonicalOptions.innerHTML = uniqueSort(allNames).map(name =>
+  const allNames = uniqueSort(state.mappingGroups.map(g => g.canonical).filter(Boolean));
+  dom.canonicalOptions.innerHTML = allNames.map(name =>
     `<option value="${escapeHtmlAttr(name)}"></option>`
   ).join("");
-}
-
-function makeRawKey(projectKey, rawItem) {
-  return `${projectKey}::${rawItem}`;
-}
-
-function suggestCanonicalName(rawItem) {
-  return String(rawItem || "")
-    .replace(/\s+/g, " ")
-    .replace(/[_\-]+/g, "-")
-    .replace(/\s*\/\s*/g, "/")
-    .trim();
 }
 
 /* =========================
@@ -527,107 +562,16 @@ function populateDongFilter() {
     : `<option value="">동 없음</option>`;
 }
 
-dom.btnRenderCompare.addEventListener("click", renderCompareTable);
+dom.btnRenderCompare.addEventListener("click", () => {
+  renderSummaryCards();
+  renderCompareCards();
+});
 dom.filterDong.addEventListener("change", () => {
   renderSummaryCards();
-  renderCompareTable();
+  renderCompareCards();
 });
-dom.filterItem.addEventListener("input", renderCompareTable);
-dom.filterMode.addEventListener("change", renderCompareTable);
-
-function renderSummaryCards() {
-  if (!state.mappedReady) {
-    dom.summaryCards.innerHTML = "";
-    return;
-  }
-
-  const dong = dom.filterDong.value;
-  if (!dong) {
-    dom.summaryCards.innerHTML = "";
-    return;
-  }
-
-  const viewData = buildUnifiedDataByDong(dong);
-  const unifiedItems = Object.keys(viewData.items);
-  const floors = viewData.floors;
-
-  let ratioCount = 0;
-  let ratioHigh = 0;
-  let ratioLow = 0;
-
-  unifiedItems.forEach(item => {
-    floors.forEach(floor => {
-      const row = viewData.items[item][floor];
-      if (row && row.ratio !== null) {
-        ratioCount++;
-        if (row.ratio >= 110) ratioHigh++;
-        if (row.ratio <= 90) ratioLow++;
-      }
-    });
-  });
-
-  dom.summaryCards.innerHTML = `
-    <div class="summary-card">
-      <div class="summary-card__label">선택 동</div>
-      <div class="summary-card__value">${escapeHtml(dong)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card__label">비교 아이템 수</div>
-      <div class="summary-card__value">${unifiedItems.length}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card__label">비율 계산 셀 수</div>
-      <div class="summary-card__value">${ratioCount}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card__label">과다 / 과소 셀 수</div>
-      <div class="summary-card__value">${ratioHigh} / ${ratioLow}</div>
-    </div>
-  `;
-}
-
-function renderCompareTable() {
-  if (!state.mappedReady) {
-    dom.compareThead.innerHTML = "";
-    dom.compareTbody.innerHTML = `<tr><td class="empty">아이템 통일명을 먼저 적용해 주세요.</td></tr>`;
-    dom.compareStatus.textContent = "";
-    return;
-  }
-
-  const dong = dom.filterDong.value;
-  if (!dong) {
-    dom.compareThead.innerHTML = "";
-    dom.compareTbody.innerHTML = `<tr><td class="empty">동을 선택해 주세요.</td></tr>`;
-    dom.compareStatus.textContent = "";
-    return;
-  }
-
-  const keyword = dom.filterItem.value.trim().toLowerCase();
-  const ratioMode = dom.filterMode.value;
-
-  const viewData = buildUnifiedDataByDong(dong);
-  let items = Object.keys(viewData.items);
-  const floors = viewData.floors;
-
-  if (keyword) {
-    items = items.filter(item => item.toLowerCase().includes(keyword));
-  }
-
-  items = uniqueSort(items);
-
-  if (!items.length) {
-    dom.compareThead.innerHTML = "";
-    dom.compareTbody.innerHTML = `<tr><td class="empty">조건에 맞는 아이템이 없습니다.</td></tr>`;
-    dom.compareStatus.textContent = "";
-    return;
-  }
-
-  renderCompareHeader(floors);
-  renderCompareBody(items, floors, viewData, ratioMode);
-
-  dom.compareStatus.textContent =
-    `동 ${dong} 기준 / 아이템 ${items.length}개 / 층 ${floors.length}개`;
-}
+dom.filterItem.addEventListener("input", renderCompareCards);
+dom.filterMode.addEventListener("change", renderCompareCards);
 
 function buildUnifiedDataByDong(dong) {
   const unified = {
@@ -689,81 +633,148 @@ function buildUnifiedDataByDong(dong) {
   return unified;
 }
 
-function renderCompareHeader(floors) {
-  const groups = [
-    { key: "current", label: "현재 프로젝트", cls: "compare-group-current" },
-    { key: "a", label: "유사 A", cls: "compare-group-a" },
-    { key: "b", label: "유사 B", cls: "compare-group-b" },
-    { key: "c", label: "유사 C", cls: "compare-group-c" },
-    { key: "avg", label: "유사 3개 평균", cls: "compare-group-avg" },
-    { key: "ratio", label: "현재 / 평균 비율(%)", cls: "compare-group-ratio" }
-  ];
+function renderSummaryCards() {
+  if (!state.mappedReady) {
+    dom.summaryCards.innerHTML = "";
+    return;
+  }
 
-  const top = [];
-  top.push(`<th class="sticky-col" rowspan="2" style="min-width:110px">아이템</th>`);
-  top.push(`<th class="sticky-col-2" rowspan="2" style="min-width:140px">구분</th>`);
+  const dong = dom.filterDong.value;
+  if (!dong) {
+    dom.summaryCards.innerHTML = "";
+    return;
+  }
 
-  groups.forEach(g => {
-    top.push(`<th class="${g.cls}" colspan="${floors.length}">${g.label}</th>`);
-  });
+  const viewData = buildUnifiedDataByDong(dong);
+  const unifiedItems = Object.keys(viewData.items);
+  const floors = viewData.floors;
 
-  const bottom = [];
-  groups.forEach(g => {
+  let ratioCount = 0;
+  let ratioHigh = 0;
+  let ratioLow = 0;
+
+  unifiedItems.forEach(item => {
     floors.forEach(floor => {
-      bottom.push(`<th class="compare-floor-head ${g.cls}">${escapeHtml(floor)}</th>`);
+      const row = viewData.items[item][floor];
+      if (row && row.ratio !== null) {
+        ratioCount++;
+        if (row.ratio >= 110) ratioHigh++;
+        if (row.ratio <= 90) ratioLow++;
+      }
     });
   });
 
-  dom.compareThead.innerHTML = `
-    <tr>${top.join("")}</tr>
-    <tr>${bottom.join("")}</tr>
+  dom.summaryCards.innerHTML = `
+    <div class="summary-card">
+      <div class="summary-card__label">선택 동</div>
+      <div class="summary-card__value">${escapeHtml(dong)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">비교 아이템 수</div>
+      <div class="summary-card__value">${unifiedItems.length}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">비율 계산 셀 수</div>
+      <div class="summary-card__value">${ratioCount}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">과다 / 과소 셀 수</div>
+      <div class="summary-card__value">${ratioHigh} / ${ratioLow}</div>
+    </div>
   `;
 }
 
-function renderCompareBody(items, floors, viewData, ratioMode) {
-  const rows = [];
+function renderCompareCards() {
+  if (!state.mappedReady) {
+    dom.compareCardList.innerHTML = `<div class="empty-box">아이템 통일명을 먼저 적용해 주세요.</div>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
 
-  items.forEach(item => {
-    const tr = [];
-    tr.push(`<td class="sticky-col row-item">${escapeHtml(item)}</td>`);
-    tr.push(`<td class="sticky-col-2 row-item-sub">수량 / 평균 / 비율</td>`);
+  const dong = dom.filterDong.value;
+  if (!dong) {
+    dom.compareCardList.innerHTML = `<div class="empty-box">동을 선택해 주세요.</div>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
 
-    // current
-    floors.forEach(floor => {
-      tr.push(`<td>${formatValue(viewData.items[item][floor].current)}</td>`);
-    });
+  const keyword = dom.filterItem.value.trim().toLowerCase();
+  const ratioMode = dom.filterMode.value;
+  const viewData = buildUnifiedDataByDong(dong);
+  const floors = viewData.floors;
 
-    // a
-    floors.forEach(floor => {
-      tr.push(`<td>${formatValue(viewData.items[item][floor].a)}</td>`);
-    });
+  let items = Object.keys(viewData.items);
+  if (keyword) items = items.filter(item => item.toLowerCase().includes(keyword));
+  items = uniqueSort(items);
 
-    // b
-    floors.forEach(floor => {
-      tr.push(`<td>${formatValue(viewData.items[item][floor].b)}</td>`);
-    });
+  if (!items.length) {
+    dom.compareCardList.innerHTML = `<div class="empty-box">조건에 맞는 아이템이 없습니다.</div>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
 
-    // c
-    floors.forEach(floor => {
-      tr.push(`<td>${formatValue(viewData.items[item][floor].c)}</td>`);
-    });
+  dom.compareCardList.innerHTML = items.map(item => renderCompareCard(item, floors, viewData, ratioMode)).join("");
+  dom.compareStatus.textContent = `동 ${dong} 기준 / 아이템 ${items.length}개 / 층 ${floors.length}개`;
+}
 
-    // avg
-    floors.forEach(floor => {
-      tr.push(`<td>${formatValue(viewData.items[item][floor].avg)}</td>`);
-    });
+function renderCompareCard(item, floors, viewData, ratioMode) {
+  const values = viewData.items[item];
 
-    // ratio
-    floors.forEach(floor => {
-      const ratio = viewData.items[item][floor].ratio;
-      const cls = ratioClass(ratio, ratioMode);
-      tr.push(`<td class="${cls}">${formatRatio(ratio)}</td>`);
-    });
+  let ratioValues = floors.map(f => values[f]?.ratio).filter(v => typeof v === "number");
+  const ratioAvg = ratioValues.length ? average(ratioValues) : null;
 
-    rows.push(`<tr>${tr.join("")}</tr>`);
-  });
+  return `
+    <div class="compare-card">
+      <div class="compare-card__head">
+        <div>
+          <div class="compare-card__title">${escapeHtml(item)}</div>
+          <div class="compare-card__meta">층별 수량 / 평균 / 비율 비교</div>
+        </div>
+        <div class="compare-card__meta">평균 비율 ${ratioAvg === null ? "-" : `${ratioAvg.toFixed(1)}%`}</div>
+      </div>
 
-  dom.compareTbody.innerHTML = rows.join("");
+      <div class="compare-card__body">
+        <table class="compare-matrix">
+          <thead>
+            <tr>
+              <th class="label-col">구분</th>
+              ${floors.map(f => `<th>${escapeHtml(f)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-current">
+              <td class="label-col">현재 프로젝트</td>
+              ${floors.map(f => `<td>${formatValue(values[f]?.current)}</td>`).join("")}
+            </tr>
+            <tr class="row-a">
+              <td class="label-col">유사 A</td>
+              ${floors.map(f => `<td>${formatValue(values[f]?.a)}</td>`).join("")}
+            </tr>
+            <tr class="row-b">
+              <td class="label-col">유사 B</td>
+              ${floors.map(f => `<td>${formatValue(values[f]?.b)}</td>`).join("")}
+            </tr>
+            <tr class="row-c">
+              <td class="label-col">유사 C</td>
+              ${floors.map(f => `<td>${formatValue(values[f]?.c)}</td>`).join("")}
+            </tr>
+            <tr class="row-avg">
+              <td class="label-col">유사 3개 평균</td>
+              ${floors.map(f => `<td>${formatValue(values[f]?.avg)}</td>`).join("")}
+            </tr>
+            <tr class="row-ratio">
+              <td class="label-col">현재 / 평균 비율(%)</td>
+              ${floors.map(f => {
+                const ratio = values[f]?.ratio ?? null;
+                const cls = ratioClass(ratio, ratioMode);
+                return `<td class="${cls}">${formatRatio(ratio)}</td>`;
+              }).join("")}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function ratioClass(ratio, mode) {
@@ -781,6 +792,18 @@ function ratioClass(ratio, mode) {
 /* =========================
    유틸
 ========================= */
+function makeRawKey(projectKey, rawItem) {
+  return `${projectKey}::${rawItem}`;
+}
+
+function suggestCanonicalName(rawItem) {
+  return String(rawItem || "")
+    .replace(/\s+/g, " ")
+    .replace(/[_\-]+/g, "-")
+    .replace(/\s*\/\s*/g, "/")
+    .trim();
+}
+
 function normalizeItemName(v) {
   return String(v ?? "").replace(/\s+/g, " ").trim();
 }
@@ -788,7 +811,6 @@ function normalizeItemName(v) {
 function normalizeFloorCell(v) {
   const s = String(v ?? "").trim();
   if (!s) return "";
-  // 1, 2, 3 ... 형태를 1F, 2F로 표준화
   if (/^\d+$/.test(s)) return `${s}F`;
   return s;
 }
