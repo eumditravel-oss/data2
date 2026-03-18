@@ -23,7 +23,7 @@ const dom = {
   tabPanels: { upload: $("tab-upload"), mapping: $("tab-mapping"), compare: $("tab-compare") },
   fileInputs: { current: $("file-current"), a: $("file-a"), b: $("file-b"), c: $("file-c") },
   fileNames: { current: $("name-current"), a: $("name-a"), b: $("name-b"), c: $("name-c") },
-  fileLists: { current: $("list-current"), a: $("list-a"), b: $("list-b"), c: $("list-c") }, // 파일 목록 영역 추가 
+  fileLists: { current: $("list-current"), a: $("list-a"), b: $("list-b"), c: $("list-c") },
   btnParse: $("btn-parse"),
   uploadStatus: $("upload-status"),
   mappingSearch: $("mapping-search"),
@@ -32,25 +32,24 @@ const dom = {
   filterDong: $("filter-dong"),
   filterCategory: $("filter-category"),
   filterItem: $("filter-item"),
-  filterMode: $("filter-mode"),
   compareCardList: $("compare-card-list")
 };
 
-/* 파일 업로드 시 화면에 파일 이름 표시  */
+/* 파일 업로드 시 칩 표시 */
 function renderFileUI(key) {
   const files = state.projects[key].files;
-  dom.fileNames[key].textContent = files.length ? `${files.length}개 파일 선택됨` : "선택된 파일 없음";
+  dom.fileNames[key].textContent = files.length ? `${files.length}개 파일` : "선택된 파일 없음";
   dom.fileLists[key].innerHTML = files.map(f => `<span class="file-chip">${f.name}</span>`).join("");
 }
 
 PROJECTS.forEach(({key}) => {
   dom.fileInputs[key].onchange = (e) => {
     state.projects[key].files = [...e.target.files];
-    renderFileUI(key); // 파일 이름 칩 생성 호출 
+    renderFileUI(key);
   };
 });
 
-/* 자동 분류 엔진  */
+/* 자동 분류 */
 function determineCategory(name) {
   const s = String(name).toUpperCase();
   if (s.includes("H") || s.includes("D")) return "철근";
@@ -68,28 +67,26 @@ dom.tabs.forEach(tab => {
   };
 });
 
-/* 파싱 로직  */
+/* 파싱 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "엑셀 분석 중...";
-  try {
-    for (const {key} of PROJECTS) {
-      const pState = emptyState();
-      for (const file of state.projects[key].files) {
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: "array" });
-        wb.SheetNames.forEach(sn => {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-          const parsed = parseSheet(rows);
-          mergeData(pState, parsed);
-        });
-      }
-      state.projects[key] = pState;
+  dom.uploadStatus.textContent = "분석 중...";
+  for (const {key} of PROJECTS) {
+    const pState = emptyState();
+    for (const file of state.projects[key].files) {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      wb.SheetNames.forEach(sn => {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
+        const parsed = parseSheet(rows);
+        mergeData(pState, parsed);
+      });
     }
-    buildGroups();
-    renderGroups();
-    dom.uploadStatus.textContent = "분석 완료!";
-    dom.tabs[1].click();
-  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; }
+    state.projects[key] = pState;
+  }
+  buildGroups();
+  renderGroups();
+  dom.uploadStatus.textContent = "분석 완료!";
+  dom.tabs[1].click();
 };
 
 function parseSheet(rows) {
@@ -97,8 +94,7 @@ function parseSheet(rows) {
   let dong = "", floor = "", prevF = null, sameCnt = 0;
   const r3 = rows[2] || [], r4 = rows[3] || [];
   for (let r = 4; r < rows.length; r++) {
-    const row = rows[r];
-    const txt = row.join("|");
+    const txt = rows[r].join("|");
     const m = txt.match(/\[([^\]]+)\]/);
     if (m) {
       dong = m[1].trim();
@@ -106,7 +102,7 @@ function parseSheet(rows) {
       res.data[dong] = {}; floor = ""; sameCnt = 0; continue;
     }
     if (!dong) continue;
-    const fRaw = String(row[0]).trim();
+    const fRaw = String(rows[r][0]).trim();
     if (fRaw !== "") {
       floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
       if (!res.floors.includes(floor)) res.floors.push(floor);
@@ -114,9 +110,9 @@ function parseSheet(rows) {
       prevF = floor;
     } else if (floor) sameCnt++;
     const head = (sameCnt % 2 === 1) ? r3 : r4;
-    for (let c = 1; c < row.length; c++) {
+    for (let c = 1; c < rows[r].length; c++) {
       const item = String(head[c] || "").trim();
-      const val = parseFloat(String(row[c]).replace(/,/g, ""));
+      const val = parseFloat(String(rows[r][c]).replace(/,/g, ""));
       if (!item || isNaN(val)) continue;
       if (!res.rawItems.includes(item)) res.rawItems.push(item);
       if (!res.data[dong][item]) res.data[dong][item] = {};
@@ -165,21 +161,22 @@ function renderGroups() {
   const q = dom.mappingSearch.value.toLowerCase();
   dom.mappingGroupList.innerHTML = state.mappingGroups
     .filter(g => g.canonical.toLowerCase().includes(q))
-    .map(group => `
+    .map(g => `
       <div class="mapping-group-card">
         <div class="mapping-group-card__top">
-          <div class="mapping-group-card__left"><strong>${group.canonical}</strong></div>
+          <div class="mapping-group-card__left"><strong>${g.canonical}</strong></div>
           <div class="mapping-group-card__right">
-            <select onchange="updateCat('${group.groupId}', this.value)">
-              ${CATEGORIES.map(c => `<option value="${c}" ${group.category === c ? 'selected' : ''}>${c}</option>`).join("")}
+            <select onchange="updateCat('${g.groupId}', this.value)">
+              ${CATEGORIES.map(c => `<option value="${c}" ${g.category === c ? 'selected' : ''}>${c}</option>`).join("")}
             </select>
           </div>
         </div>
         <div class="mapping-project-grid">
-          ${PROJECTS.map(p => `<div class="mapping-project-col ${p.key}">
-            <div class="mapping-project-col__head">${p.name}</div>
-            <div class="mapping-project-col__body">${group.items[p.key].join(", ") || '-'}</div>
-          </div>`).join("")}
+          ${PROJECTS.map(p => `
+            <div class="mapping-project-col ${p.key}">
+              <div class="mapping-project-col__head">${p.name}</div>
+              <div class="mapping-project-col__body">${g.items[p.key].join(", ") || '-'}</div>
+            </div>`).join("")}
         </div>
       </div>`).join("");
 }
@@ -187,7 +184,6 @@ function renderGroups() {
 window.updateCat = (id, val) => { state.mappingGroups.find(g => g.groupId === id).category = val; };
 dom.mappingSearch.oninput = renderGroups;
 
-/* 비교표 렌더링 (A,B,C 상세 수량 포함)  */
 dom.btnApplyMapping.onclick = () => {
   state.mappings = {};
   state.mappingGroups.forEach(g => {
@@ -203,18 +199,20 @@ dom.btnApplyMapping.onclick = () => {
 };
 
 [dom.filterDong, dom.filterCategory].forEach(el => el.onchange = renderCompare);
+dom.filterItem.oninput = renderCompare;
 
 function renderCompare() {
   if (!state.mappedReady) return;
   const dong = dom.filterDong.value;
   const cat = dom.filterCategory.value;
-  const unified = { floors: [], items: {} };
+  const keyw = dom.filterItem.value.toLowerCase();
 
+  const unified = { floors: [], items: {} };
   PROJECTS.forEach(p => {
     const dData = state.projects[p.key].data[dong] || {};
     for (const raw in dData) {
       const m = state.mappings[`${p.key}::${raw}`];
-      if (!m || (cat !== 'all' && m.category !== cat)) continue;
+      if (!m || (cat !== 'all' && m.category !== cat) || (keyw && !m.canonical.toLowerCase().includes(keyw))) continue;
       if (!unified.items[m.canonical]) unified.items[m.canonical] = {};
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
@@ -242,9 +240,17 @@ function renderCompare() {
                 const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
                 return `<td>${avg.toLocaleString(undefined, {maximumFractionDigits:1})}</td>`;
               }).join("")}</tr>
+              <tr style="font-weight:bold;"><td>비율(%)</td>${unified.floors.map(f=>{
+                const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
+                const r = avg > 0 ? (vals[f].current / avg * 100) : 0;
+                let cls = (r >= 110) ? "ratio-high" : (r > 0 && r <= 90) ? "ratio-low" : "";
+                return `<td class="${cls}">${r ? r.toFixed(1)+'%' : '-'}</td>`;
+              }).join("")}</tr>
             </tbody>
           </table>
         </div>
       </div>`;
-  }).join("") || "데이터 없음";
+  }).join("") || "검색 결과 없음";
 }
+
+$ ("btn-reset").onclick = () => location.reload();
