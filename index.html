@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 비교표</h1>
-        <p>현재 프로젝트와 유사 프로젝트 3개의 데이터를 비교합니다.</p>
+        <p>프로젝트별 수량을 비교하고 중분류별로 필터링합니다.</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost">초기화</button>
@@ -31,23 +31,39 @@
           <div class="upload-grid">
             <div class="upload-card">
               <div class="upload-card__head"><strong>현재 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-current" multiple /><span class="filebox__btn">파일 선택</span></label>
-              <div class="file-list" id="list-current"></div>
+              <label class="filebox">
+                <input type="file" id="file-current" multiple />
+                <span class="filebox__btn">파일 선택</span>
+                <span class="filebox__name" id="name-current">선택된 파일 없음</span>
+              </label>
+              <div id="list-current" class="file-list"></div>
             </div>
             <div class="upload-card">
               <div class="upload-card__head"><strong>A 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-a" multiple /><span class="filebox__btn">파일 선택</span></label>
-              <div class="file-list" id="list-a"></div>
+              <label class="filebox">
+                <input type="file" id="file-a" multiple />
+                <span class="filebox__btn">파일 선택</span>
+                <span class="filebox__name" id="name-a">선택된 파일 없음</span>
+              </label>
+              <div id="list-a" class="file-list"></div>
             </div>
             <div class="upload-card">
               <div class="upload-card__head"><strong>B 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-b" multiple /><span class="filebox__btn">파일 선택</span></label>
-              <div class="file-list" id="list-b"></div>
+              <label class="filebox">
+                <input type="file" id="file-b" multiple />
+                <span class="filebox__btn">파일 선택</span>
+                <span class="filebox__name" id="name-b">선택된 파일 없음</span>
+              </label>
+              <div id="list-b" class="file-list"></div>
             </div>
             <div class="upload-card">
               <div class="upload-card__head"><strong>C 프로젝트</strong></div>
-              <label class="filebox"><input type="file" id="file-c" multiple /><span class="filebox__btn">파일 선택</span></label>
-              <div class="file-list" id="list-c"></div>
+              <label class="filebox">
+                <input type="file" id="file-c" multiple />
+                <span class="filebox__btn">파일 선택</span>
+                <span class="filebox__name" id="name-c">선택된 파일 없음</span>
+              </label>
+              <div id="list-c" class="file-list"></div>
             </div>
           </div>
           <div class="panel__foot">
@@ -62,11 +78,10 @@
           <div class="panel__head">
             <div class="toolbar">
               <input type="text" id="mapping-search" class="input" placeholder="아이템 검색" />
-              <button id="btn-apply-mapping" class="btn btn-primary">통일명 적용</button>
+              <button id="btn-apply-mapping" class="btn btn-primary">통일명 및 분류 적용</button>
             </div>
           </div>
           <div id="mapping-group-list" class="mapping-group-list"></div>
-          <datalist id="canonical-options"></datalist>
           <div id="mapping-status" class="status-box"></div>
         </div>
       </section>
@@ -84,13 +99,8 @@
                 <option value="잡/기타">잡/기타</option>
               </select>
               <input type="text" id="filter-item" class="input" placeholder="아이템 검색" />
-              <select id="filter-mode" class="input">
-                <option value="all">전체 보기</option>
-                <option value="ratio">비율 강조</option>
-              </select>
             </div>
           </div>
-          <div class="summary-cards" id="summary-cards"></div>
           <div id="compare-card-list" class="compare-card-list"></div>
           <div id="compare-status" class="status-box"></div>
         </div>
