@@ -29,95 +29,100 @@ const dom = {
 /* 중분류 예측 알고리즘 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
-  if (/(H|D|HD|SD|D)\d+/.test(s) || s.includes("철근") || s.startsWith("H1") || s.startsWith("D1")) return "철근";
+  // 철근 패턴: H10, D19, 철근 등
+  if (/(H|D|HD|SD)\d+/.test(s) || s.includes("철근") || s.startsWith("H") || s.startsWith("D")) return "철근";
+  // 콘크리트 패턴: MPA, 25-240-15 등
   if (s.includes("MPA") || /\d+-\d+-\d+/.test(s) || (/^\d+$/.test(s) && parseInt(s) >= 150)) return "콘크리트";
+  // 거푸집 패턴: 폼, 회 등
   if (["폼","FORM","회","유로","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
   return "잡/기타";
 }
 
+/* 데이터 파싱 시작 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다 (4행 헤더 포함)...";
+  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다 (2행 세트 분석)...";
   try {
     for (const p of PROJECTS) {
-      const files = Array.from($(`file-${p.key}`).files);
+      const input = $(`file-${p.key}`);
+      const files = Array.from(input.files || []);
       if(files.length === 0) continue;
+
       const pState = state.projects[p.key];
       for (const file of files) {
-        const rows = XLSX.utils.sheet_to_json(wb(await file.arrayBuffer()), { header: 1, defval: "" });
-        parseSheetData(rows, pState);
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        wb.SheetNames.forEach(sn => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
+          parseSheetData(rows, pState);
+        });
       }
     }
-    initDongMapping(); buildItemGroups(); renderDongUI(); renderItemUI();
-    dom.uploadStatus.textContent = "분석 완료!";
+    initDongMapping();
+    buildItemGroups();
+    renderDongUI();
+    renderItemUI();
+    dom.uploadStatus.textContent = "분석 완료! 2번 탭에서 설정을 확인하세요.";
     dom.tabs[1].click();
-  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; }
+  } catch(e) { 
+    dom.uploadStatus.textContent = "오류 발생: " + e.message; 
+    console.error(e);
+  }
 };
 
-async function wb(buffer) {
-  const readWb = XLSX.read(buffer, { type: 'array' });
-  return readWb.Sheets[readWb.SheetNames[0]];
-}
-
-/* 엑셀 구조 정밀 파싱 (2행 1세트 로직 강화) */
+/* 엑셀 구조 정밀 파싱 (2행 1세트 로직 핵심) */
 function parseSheetData(rows, pState) {
   let currentDong = "";
   let lastFloor = "";
-  const row3 = rows[2] || []; // 3행 헤더: 콘크리트 강도 등
-  const row4 = rows[3] || []; // 4행 헤더: 거푸집 회수, 철근 규격 등
+  const row3 = rows[2] || []; // 3행 헤더 (콘크리트 등)
+  const row4 = rows[3] || []; // 4행 헤더 (거푸집, 철근 등)
 
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
 
     const rowText = row.join("|");
-    // 동 명칭 감지
+    // 동 명칭 감지 (동 명 : [101동] 패턴)
     const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
     if (dongMatch) {
       currentDong = dongMatch[1].trim();
       if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
       pState.data[currentDong] = pState.data[currentDong] || {};
-      lastFloor = ""; // 동이 바뀌면 층 초기화
+      lastFloor = "";
       continue;
     }
     if (!currentDong) continue;
 
     // 층 정보 확인 (A열)
     const fRaw = String(row[0]).trim();
-    if (fRaw.includes("계") || fRaw.includes("공사명")) continue;
+    if (fRaw.includes("계") || fRaw.includes("공사명") || fRaw === "층") continue;
 
-    // 만약 층 이름이 있으면 갱신, 없으면 이전 층 이름 유지 (2행 1세트 처리를 위해)
-    if (fRaw !== "" && fRaw !== "층") {
+    // 층 이름이 있는 행 = 첫 번째 행(row3 매칭), 층 이름이 없는 행 = 두 번째 행(row4 매칭)
+    if (fRaw !== "") {
       lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
       if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
     }
     
     if (!lastFloor) continue;
 
-    // 데이터 수집 (B열부터 끝까지)
+    // 수량 데이터 수집 (B열부터)
     for (let c = 1; c < row.length; c++) {
       const val = parseFloat(String(row[c]).replace(/,/g, ""));
       if (isNaN(val) || val === 0) continue;
 
-      // 핵심 로직: 층 이름이 있는 행은 3행 헤더 매칭, 없는 행(두 번째 행)은 4행 헤더 매칭
-      let itemName = "";
-      if (fRaw !== "") {
-        itemName = String(row3[c] || "").trim(); // 3행 헤더 사용
-      } else {
-        itemName = String(row4[c] || "").trim(); // 4행 헤더 사용
-      }
-
-      // 만약 itemName이 비어있으면 데이터는 있는데 헤더가 없는 경우이므로 스킵하거나 보조 확인
+      // 층 이름이 있는 행이면 row3(콘크리트) 헤더, 없으면 row4(거푸집/철근) 헤더 사용
+      let itemName = (fRaw !== "") ? String(row3[c] || "").trim() : String(row4[c] || "").trim();
+      
+      // 만약 매칭된 헤더가 없으면 보조 헤더 확인
+      if (!itemName) itemName = String(row3[c] || row4[c] || "").trim();
       if (!itemName) continue;
 
       if (!pState.rawItems.includes(itemName)) pState.rawItems.push(itemName);
-      pState.data[currentDong][itemName] = pState.data[currentDong][itemName] || {};
+      if (!pState.data[currentDong][itemName]) pState.data[currentDong][itemName] = {};
+      
       pState.data[currentDong][itemName][lastFloor] = (pState.data[currentDong][itemName][lastFloor] || 0) + val;
     }
   }
 }
-
-/* 이하 기능(DongMapping, renderUI, renderCompare 등)은 기존과 동일하되
-   데이터 유실을 막기 위해 전체 구조를 유지합니다. */
 
 function initDongMapping() {
   PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(d => {
@@ -200,7 +205,7 @@ $("mapping-search").oninput = renderItemUI;
 function renderCompare() {
   if (!state.mappedReady) return;
   const targetStd = dom.filterDong.value;
-  const catFilter = $("filter-category").value;
+  const catFilter = dom.filterCategory.value;
   const unified = { floors: [], items: {} };
 
   PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(orig => {
@@ -220,6 +225,7 @@ function renderCompare() {
 
   unified.floors.sort((x,y) => (parseInt(x)||0) - (parseInt(y)||0));
   renderRatioBoard(unified);
+
   dom.compareList.innerHTML = Object.keys(unified.items).map(name => {
     const v = unified.items[name];
     return `
