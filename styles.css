@@ -1,68 +1,36 @@
 :root {
-  --bg: #f5f7fb;
-  --panel: #ffffff;
-  --line: #d9e1ef;
-  --text: #10233f;
-  --muted: #6a7890;
-  --primary: #1f5eff;
-  --primary-weak: #eaf1ff;
-  --orange: #e67e22;
-  --success: #10b981;
-  --shadow: 0 10px 24px rgba(16, 35, 63, .06);
-  --radius: 18px;
+  --bg: #f5f7fb; --panel: #ffffff; --line: #d9e1ef; --text: #10233f;
+  --muted: #6a7890; --primary: #1f5eff; --primary-weak: #eaf1ff;
+  --orange: #e67e22; --success: #10b981; --shadow: 0 10px 24px rgba(16,35,63,.06); --radius: 18px;
 }
-
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Pretendard", sans-serif; padding: 24px; }
-
 .app-shell { max-width: 1600px; margin: 0 auto; }
-.topbar { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-.topbar h1 { margin: 0; font-size: 26px; font-weight: 800; }
-.topbar p { margin: 0; color: var(--muted); font-size: 14px; }
-
-/* Tabs */
-.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.tab { padding: 12px 24px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 700; transition: 0.2s; }
-.tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
-
-/* Panel */
-.panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.topbar h1 { margin: 0; font-size: 28px; font-weight: 800; }
+.tabs { display: flex; gap: 10px; margin-bottom: 24px; }
+.tab { padding: 14px 28px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 700; transition: 0.2s; }
+.tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 4px 12px rgba(31,94,255,0.3); }
+.panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 30px; margin-bottom: 20px; }
 .tab-panel { display: none; }
 .tab-panel.is-active { display: block; }
-
-/* Upload Box */
-.upload-box { border: 2px dashed var(--line); padding: 40px; text-align: center; border-radius: 14px; background: #fbfcff; }
+.upload-box { border: 2px dashed var(--line); padding: 50px; text-align: center; border-radius: var(--radius); background: #fbfcff; }
 .filebox input { display: none; }
-.filebox__btn { padding: 10px 24px; background: #fff; border: 1px solid var(--primary); color: var(--primary); border-radius: 8px; cursor: pointer; font-weight: 700; }
-.file-chip { display: inline-block; padding: 5px 12px; background: var(--primary-weak); color: var(--primary); border-radius: 20px; font-size: 12px; margin: 5px; font-weight: 700; }
-
-/* Mapping List */
-.list-header { display: flex; align-items: center; padding: 14px 16px; background: #f8fbff; border: 1px solid var(--line); font-weight: 800; font-size: 13px; color: var(--muted); border-radius: 10px 10px 0 0; }
-.item-row { display: flex; align-items: center; padding: 10px 16px; background: #fff; border: 1px solid var(--line); border-top: none; gap: 12px; }
-.item-row:last-child { border-radius: 0 0 10px 10px; }
-
-/* Excel Table View */
-.excel-view-container { overflow-x: auto; margin-top: 15px; border: 1px solid var(--line); border-radius: 12px; }
-.excel-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px; }
-.excel-table th, .excel-table td { border: 1px solid var(--line); padding: 10px 6px; text-align: center; }
-.excel-table th { background: #f4f7fd; font-weight: 800; position: sticky; top: 0; }
+.filebox__btn { padding: 12px 30px; background: #fff; border: 2px solid var(--primary); color: var(--primary); border-radius: 10px; cursor: pointer; font-weight: 800; }
+.file-chip { display: inline-block; padding: 6px 14px; background: var(--primary-weak); color: var(--primary); border-radius: 20px; font-size: 12px; margin: 5px; font-weight: 700; }
+.excel-view-container { overflow: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; max-height: 700px; }
+.excel-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.excel-table th, .excel-table td { border: 0.5px solid var(--line); padding: 12px 8px; text-align: center; white-space: nowrap; }
+.excel-table th { background: #f4f7fd; font-weight: 800; position: sticky; top: 0; z-index: 10; }
 .excel-table tr:hover { background: #f9fbff; }
-.col-total { background: #f8f9fa; font-weight: 800; }
-.row-ratio { background: #fff4e6; }
-.row-ratio td { color: var(--orange); font-weight: 800; }
-
-/* Summary Dashboard */
+.row-ratio { background: #fff4e6; font-weight: 800; color: var(--orange); }
 .summary-container { display: flex; gap: 16px; margin-bottom: 20px; }
-.stat-card { flex: 1; padding: 20px; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); text-align: center; }
-.stat-card span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.stat-card strong { font-size: 22px; color: var(--text); }
-.stat-card.highlight { border-left: 6px solid var(--orange); }
-
-/* Common UI */
-.btn { padding: 12px 20px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; transition: 0.2s; }
+.stat-card { flex: 1; padding: 24px; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); text-align: center; }
+.stat-card strong { font-size: 24px; color: var(--text); display: block; margin-top: 8px; }
+.stat-card.highlight { border-left: 8px solid var(--orange); }
+.btn { padding: 14px 24px; border-radius: 12px; border: none; font-weight: 800; cursor: pointer; transition: 0.2s; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-success { background: var(--success); color: #fff; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
-.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.input { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; outline: none; }
-.status-box { margin-top: 15px; font-size: 14px; color: var(--muted); }
+.toolbar { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+.input { padding: 10px 16px; border: 1px solid var(--line); border-radius: 10px; outline: none; }
