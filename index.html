@@ -75,18 +75,13 @@
           </div>
 
           <div id="sub-dong" class="sub-panel is-active">
-            <div class="toolbar">
-              <p style="margin:0; color:var(--muted); font-size:14px;">
-                ※ 각 프로젝트에서 추출된 서로 다른 동 이름을 하나의 표준 이름으로 매핑하세요. (예: 1BL_101 → 101)
-              </p>
-            </div>
-            <div class="list-header" style="background:#f8fbff; border:1px solid var(--line); border-bottom:none;">
+            <div class="toolbar"><p style="margin:0; font-size:14px; color:var(--muted);">※ 프로젝트별 동 이름을 하나의 표준 이름으로 매핑하세요. (상/하 방향키 지원)</p></div>
+            <div class="list-header">
               <div style="flex:1; padding-left:16px;">프로젝트별 원본 동 명칭</div>
               <div style="width:40px; text-align:center;">→</div>
               <div style="flex:1; padding-left:16px;">표준 동 명칭 (비교표 기준)</div>
             </div>
-            <div class="mapping-list" id="dong-mapping-list">
-              </div>
+            <div class="mapping-list" id="dong-mapping-list"></div>
           </div>
 
           <div id="sub-item" class="sub-panel">
@@ -98,11 +93,10 @@
             <div class="list-header">
               <div class="col-check">선택</div>
               <div class="col-orig">프로젝트별 원본 (현재 / A / B / C)</div>
-              <div class="col-edit">통일명 (표준명칭)</div>
+              <div class="col-edit">통일명 (표준명)</div>
               <div class="col-cat">중분류</div>
             </div>
-            <div id="mapping-group-list" class="mapping-list">
-              </div>
+            <div id="mapping-group-list" class="mapping-list"></div>
           </div>
         </div>
       </section>
@@ -110,25 +104,17 @@
       <section id="tab-compare" class="tab-panel">
         <div class="panel">
           <div class="toolbar">
-            <div class="filter-group">
-              <label>동 선택:</label>
-              <select id="filter-dong" class="input"></select>
-            </div>
-            <div class="filter-group">
-              <label>중분류:</label>
-              <select id="filter-category" class="input">
-                <option value="all">중분류 전체</option>
-                <option value="콘크리트">콘크리트</option>
-                <option value="거푸집">거푸집</option>
-                <option value="철근">철근</option>
-                <option value="잡/기타">잡/기타</option>
-              </select>
-            </div>
-            <input type="text" id="filter-item" class="input" placeholder="아이템명 검색..." style="width:250px;" />
+            <select id="filter-dong" class="input"></select>
+            <select id="filter-category" class="input">
+              <option value="all">중분류 전체</option>
+              <option value="콘크리트">콘크리트</option>
+              <option value="거푸집">거푸집</option>
+              <option value="철근">철근</option>
+              <option value="잡/기타">잡/기타</option>
+            </select>
+            <input type="text" id="filter-item" class="input" placeholder="아이템명 검색..." />
           </div>
-          <div id="compare-card-list" class="compare-card-list">
-            </div>
-          <div id="compare-status" class="status-box"></div>
+          <div id="compare-card-list"></div>
         </div>
       </section>
     </main>
@@ -136,12 +122,9 @@
 
   <script src="app.js"></script>
   <script>
-    // 파일 선택 시 즉시 리스트 표시를 위한 보조 함수
     function updateFiles(key) {
-      const input = document.getElementById('file-' + key);
-      const list = document.getElementById('list-' + key);
-      const files = Array.from(input.files);
-      list.innerHTML = files.map(f => `<span class="file-chip">${f.name}</span>`).join('');
+      const files = Array.from(document.getElementById('file-'+key).files);
+      document.getElementById('list-'+key).innerHTML = files.map(f=>`<span class="file-chip">${f.name}</span>`).join('');
     }
   </script>
 </body>
