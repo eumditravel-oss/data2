@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 비교표</h1>
-        <p>현재 프로젝트와 유사 프로젝트 3개의 층별총집계표를 업로드하여 동별 비교표를 생성합니다.</p>
+        <p>현재 프로젝트와 유사 프로젝트 3개의 층별총집계표를 업로드하여 아이템 통일 후 동별 비교표를 생성합니다.</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost">초기화</button>
@@ -26,7 +26,7 @@
         <button class="tab" data-tab="compare">3. 동별 비교표</button>
       </section>
 
-      <!-- 업로드 탭 -->
+      <!-- 업로드 -->
       <section id="tab-upload" class="tab-panel is-active">
         <div class="panel">
           <div class="panel__head">
@@ -98,55 +98,43 @@
         </div>
       </section>
 
-      <!-- 아이템 통일 탭 -->
+      <!-- 아이템 통일 -->
       <section id="tab-mapping" class="tab-panel">
         <div class="panel">
           <div class="panel__head">
             <div>
               <h2>2. 아이템 통일 설정</h2>
-              <p>프로젝트별 3행/4행 아이템명을 비교한 뒤, 통일할 명칭을 설정합니다.</p>
+              <p>유사한 아이템끼리 자동으로 묶은 뒤, 그룹 단위로 통일 아이템명을 설정합니다.</p>
             </div>
             <div class="toolbar">
-              <input type="text" id="mapping-search" class="input" placeholder="아이템 검색" />
-              <button id="btn-autofill" class="btn btn-secondary">통일명 자동채우기</button>
+              <input type="text" id="mapping-search" class="input" placeholder="아이템 그룹 검색" />
+              <button id="btn-autofill" class="btn btn-secondary">자동 통일명 채우기</button>
               <button id="btn-apply-mapping" class="btn btn-primary">통일명 적용</button>
             </div>
           </div>
 
-          <div class="mapping-compare-wrap">
-            <div class="mapping-projects" id="mapping-projects"></div>
+          <div class="group-guide">
+            <div class="guide-chip">현재 프로젝트</div>
+            <div class="guide-chip">A 프로젝트</div>
+            <div class="guide-chip">B 프로젝트</div>
+            <div class="guide-chip">C 프로젝트</div>
+            <div class="guide-chip guide-chip--accent">통일 아이템명</div>
           </div>
 
-          <div class="mapping-table-wrap">
-            <table class="table table-mapping" id="mapping-table">
-              <thead>
-                <tr>
-                  <th>프로젝트</th>
-                  <th>원본 아이템명</th>
-                  <th>자동 제안명</th>
-                  <th>통일 아이템명</th>
-                </tr>
-              </thead>
-              <tbody id="mapping-tbody">
-                <tr>
-                  <td colspan="4" class="empty">업로드 후 아이템을 추출하면 여기에 표시됩니다.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
+          <div id="mapping-group-list" class="mapping-group-list"></div>
           <datalist id="canonical-options"></datalist>
+
           <div id="mapping-status" class="status-box"></div>
         </div>
       </section>
 
-      <!-- 비교 탭 -->
+      <!-- 비교표 -->
       <section id="tab-compare" class="tab-panel">
         <div class="panel">
           <div class="panel__head">
             <div>
               <h2>3. 동별 비교표</h2>
-              <p>동을 선택하면 현재 프로젝트와 유사 3개 프로젝트, 평균, 비율을 층별로 비교합니다.</p>
+              <p>동을 선택하면 아이템별 카드로 현재 프로젝트, 유사 3개 프로젝트, 평균, 비율을 층별 비교합니다.</p>
             </div>
             <div class="toolbar toolbar-wrap">
               <select id="filter-dong" class="input"></select>
@@ -160,17 +148,7 @@
           </div>
 
           <div class="summary-cards" id="summary-cards"></div>
-
-          <div class="compare-table-wrap">
-            <table class="table table-compare" id="compare-table">
-              <thead id="compare-thead"></thead>
-              <tbody id="compare-tbody">
-                <tr>
-                  <td class="empty">비교할 데이터를 먼저 준비해 주세요.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div id="compare-card-list" class="compare-card-list"></div>
 
           <div id="compare-status" class="status-box"></div>
         </div>
