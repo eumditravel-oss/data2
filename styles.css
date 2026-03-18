@@ -1,104 +1,41 @@
-:root {
-  --bg: #f5f7fb;
-  --panel: #ffffff;
-  --line: #d9e1ef;
-  --text: #10233f;
-  --muted: #6a7890;
-  --primary: #1f5eff;
-  --primary-weak: #eaf1ff;
-  --current-bg: #eef5ff;
-  --ratio-high: #ffe3e3;
-  --ratio-low: #e6f0ff;
-  --shadow: 0 10px 24px rgba(16, 35, 63, .06);
-  --radius: 18px;
+:root { --primary: #1f5eff; --line: #d9e1ef; --bg: #f5f7fb; }
+body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 20px; }
+
+.app-shell { max-width: 1600px; margin: 0 auto; }
+.tabs, .sub-tabs { display: flex; gap: 10px; margin-bottom: 15px; }
+.tab, .sub-tab { padding: 10px 20px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.is-active { background: var(--primary) !important; color: #fff; }
+
+.panel { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+.tab-panel, .sub-panel { display: none; }
+.tab-panel.is-active, .sub-panel.is-active { display: block; }
+
+/* 리스트형 레이아웃 */
+.list-header { display: flex; font-weight: bold; padding: 10px; background: #f8fbff; border-bottom: 2px solid var(--line); }
+.item-row, .dong-row { display: flex; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.item-row:hover { background: #f0f4ff; }
+
+.col-check { width: 50px; text-align: center; }
+.col-orig { flex: 2; display: flex; gap: 4px; overflow: hidden; }
+.col-edit { flex: 1; padding: 0 10px; }
+.col-cat { width: 120px; }
+
+.p-chip { padding: 2px 6px; border-radius: 4px; font-size: 11px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; border: 1px solid #ddd; }
+.p-chip.current { background: #eef5ff; }
+.p-chip.a { background: #f6f1ff; }
+.p-chip.b { background: #f4fbef; }
+.p-chip.c { background: #fff6ea; }
+
+input.input, input.item-std-input, input.dong-std-input, select.item-cat-select { 
+  width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 4px; outline: none; 
 }
+input:focus { border-color: var(--primary); background: #fff; }
 
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; }
-.app-shell { max-width: 1800px; margin: 0 auto; padding: 24px; }
+.dong-row div { padding: 8px; }
+.col-p { flex: 1; font-weight: bold; }
+.col-arrow { width: 40px; text-align: center; color: var(--primary); }
+.col-std { flex: 1; }
 
-.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-.tab { padding: 12px 20px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: bold; }
-.tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
-
-.tab-panel { display: none; }
-.tab-panel.is-active { display: block; }
-.panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
-
-/* 업로드 카드 및 파일 칩 */
-.upload-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.upload-card { border: 1px solid var(--line); padding: 16px; border-radius: 12px; background: #fbfcff; }
-.filebox { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.filebox input { display: none; }
-.filebox__btn { padding: 8px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: bold; }
-.file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.file-chip { padding: 4px 10px; background: var(--primary-weak); color: var(--primary); border-radius: 99px; font-size: 12px; font-weight: bold; border: 1px solid var(--line); }
-
-/* 매핑 카드 */
-.mapping-group-card { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
-.mapping-group-card__top { display: flex; justify-content: space-between; padding: 12px; background: #f8fbff; border-bottom: 1px solid var(--line); }
-.mapping-project-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px; }
-.mapping-project-col { border: 1px solid var(--line); border-radius: 8px; }
-.mapping-project-col__head { padding: 8px; background: #eee; text-align: center; font-weight: bold; }
-.mapping-project-col__body { padding: 8px; font-size: 12px; }
-
-/* 비교표 매트릭스 */
-.compare-card { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
-.compare-card__head { padding: 12px; background: #fbfcff; border-bottom: 1px solid var(--line); }
-.compare-matrix { width: 100%; border-collapse: collapse; }
-.compare-matrix th, .compare-matrix td { padding: 10px; border: 1px solid var(--line); text-align: center; font-size: 14px; }
-.compare-matrix thead th { background: #f4f7fd; }
-.compare-matrix tr td:first-child { font-weight: bold; text-align: left; width: 150px; }
-.row-current td { background-color: var(--current-bg); }
-
-.ratio-high { background-color: var(--ratio-high) !important; color: #c83d3d; font-weight: bold; }
-.ratio-low { background-color: var(--ratio-low) !important; color: #1f5eff; font-weight: bold; }
-
-.toolbar { display: flex; gap: 10px; margin-bottom: 15px; }
-.input { padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
-.btn { padding: 10px 20px; border-radius: 10px; border: none; cursor: pointer; font-weight: bold; }
+.btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; }
 .btn-primary { background: var(--primary); color: #fff; }
-.btn-ghost { background: #fff; border: 1px solid var(--line); }
-.status-box { margin-top: 16px; padding: 12px; background: #f0f4f8; border-radius: 10px; color: var(--muted); }
-
-
-/* 기존 스타일에 추가 */
-.mapping-group-card.is-selected {
-  border: 2px solid var(--primary);
-  background: var(--primary-weak);
-}
-
-.mapping-group-card__left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-}
-
-.group-canonical-input {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-weight: bold;
-  font-size: 16px;
-}
-
-.mapping-item-chip input {
-  margin-right: 5px;
-}
-
-.file-chip {
-  padding: 4px 10px;
-  background: #eaf1ff;
-  color: #1f5eff;
-  border-radius: 99px;
-  font-size: 12px;
-  font-weight: bold;
-  border: 1px solid #d9e1ef;
-}
-
-.toolbar-wrap {
-  justify-content: flex-start;
-}
+.btn-secondary { background: #eee; }
