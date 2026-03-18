@@ -17,6 +17,7 @@ const dom = {
   tabs: document.querySelectorAll(".tab"),
   subTabs: document.querySelectorAll(".sub-tab"),
   btnParse: $("btn-parse"),
+  btnExcel: $("btn-excel"),
   dongList: $("dong-mapping-list"),
   itemList: $("mapping-group-list"),
   filterDong: $("filter-dong"),
@@ -26,55 +27,39 @@ const dom = {
   uploadStatus: $("upload-status")
 };
 
-/* 지능형 층 정렬 함수 */
+/* 층 정렬 로직 */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
-    // 1. 지하층 (B)
-    if (s.startsWith('B')) {
-      const num = parseInt(s.replace('B', '')) || 0;
-      return 1000 - num; // 숫자가 클수록 낮은 랭크 (B5 < B1) -> Descending
-    }
-    // 2. 기초 (FT)
+    if (s.startsWith('B')) return 1000 - (parseInt(s.replace('B', '')) || 0);
     if (s === 'FT') return 2000;
-    // 3. 지상층 (F)
-    if (s.endsWith('F') || /^\d+$/.test(s)) {
-      const num = parseInt(s.replace('F', '')) || 0;
-      return 3000 + num; // 숫자가 클수록 높은 랭크 (1F < 30F) -> Ascending
-    }
-    // 4. 옥탑 (PH)
-    if (s.startsWith('PH')) {
-      const num = parseInt(s.replace('PH', '')) || 0;
-      return 4000 + num;
-    }
+    if (s.endsWith('F') || /^\d+$/.test(s)) return 3000 + (parseInt(s.replace('F', '')) || 0);
+    if (s.startsWith('PH')) return 4000 + (parseInt(s.replace('PH', '')) || 0);
     return 5000;
   };
   return getRank(a) - getRank(b);
 }
 
-/* 중분류 예측 알고리즘 */
+/* 중분류 예측 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
   if (/(H|D|HD|SD|D)\d+/.test(s) || s.includes("철근") || s.startsWith("H1") || s.startsWith("D1")) return "철근";
   if (s.includes("MPA") || /\d+-\d+-\d+/.test(s) || (/^\d+$/.test(s) && parseInt(s) >= 150)) return "콘크리트";
-  if (["폼","FORM","회","유로","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
+  if (["폼","FORM","회","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
   return "잡/기타";
 }
 
+/* 파싱 및 분석 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다...";
+  dom.uploadStatus.textContent = "엑셀 데이터를 정밀 분석 중입니다...";
   try {
     for (const p of PROJECTS) {
       const files = Array.from($(`file-${p.key}`).files);
       if(files.length === 0) continue;
       const pState = state.projects[p.key];
       for (const file of files) {
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
-        wb.SheetNames.forEach(sn => {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-          parseSheetData(rows, pState);
-        });
+        const rows = XLSX.utils.sheet_to_json(XLSX.read(await file.arrayBuffer(),{type:'array'}).Sheets[XLSX.read(await file.arrayBuffer(),{type:'array'}).SheetNames[0]], {header:1, defval:""});
+        parseSheetData(rows, pState);
       }
     }
     initDongMapping(); buildItemGroups(); renderDongUI(); renderItemUI();
@@ -85,73 +70,43 @@ dom.btnParse.onclick = async () => {
 
 function parseSheetData(rows, pState) {
   let currentDong = "";
-  let lastFloor = "";
-  const row3 = rows[2] || [];
-  const row4 = rows[3] || [];
-
+  const r3 = rows[2] || [], r4 = rows[3] || [];
   for (let r = 4; r < rows.length; r++) {
-    const row = rows[r];
-    if (!row || row.length === 0) continue;
-
-    const rowText = row.join("|");
-    // 동 명칭 추출: [CURRENT] 같은 키워드 제외 로직 강화
-    const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
-    if (dongMatch) {
-      const rawDong = dongMatch[1].trim();
-      // 시스템 내부 키워드([CURRENT], [A] 등)는 무시
-      const isSystemKey = PROJECTS.some(p => rawDong.toLowerCase().includes(p.key.toLowerCase()));
-      if (rawDong && !isSystemKey && rawDong.length < 50) { 
-        currentDong = rawDong;
+    const m = rows[r].join("|").match(/동\s*명\s*:\s*\[([^\]]+)\]/);
+    if (m) {
+      const raw = m[1].trim();
+      if (raw && !PROJECTS.some(p => raw.toLowerCase().includes(p.key))) {
+        currentDong = raw;
         if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
-        pState.data[currentDong] = pState.data[currentDong] || {};
-        lastFloor = "";
+        pState.data[currentDong] = {};
       }
       continue;
     }
     if (!currentDong) continue;
-
-    const fRaw = String(row[0]).trim();
-    if (fRaw.includes("계") || fRaw.includes("공사명") || fRaw === "층" || fRaw === "") {
-    } else {
-        lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
-        // PH나 FT도 층 데이터로 인정
-        if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
-    }
-    
-    if (!lastFloor) continue;
-
-    for (let c = 1; c < row.length; c++) {
-      const val = parseFloat(String(row[c]).replace(/,/g, ""));
-      if (isNaN(val) || val === 0) continue;
-
-      let itemName = (fRaw !== "" && fRaw !== "층") ? String(row3[c] || "").trim() : String(row4[c] || "").trim();
-      if (!itemName) itemName = String(row3[c] || row4[c] || "").trim();
-      if (!itemName) continue;
-
-      if (!pState.rawItems.includes(itemName)) pState.rawItems.push(itemName);
-      if (!pState.data[currentDong][itemName]) pState.data[currentDong][itemName] = {};
-      
-      pState.data[currentDong][itemName][lastFloor] = (pState.data[currentDong][itemName][lastFloor] || 0) + val;
+    const fRaw = String(rows[r][0]).trim();
+    if (fRaw === "" || fRaw.includes("계") || fRaw.includes("공사명")) continue;
+    let floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
+    if (!pState.floors.includes(floor)) pState.floors.push(floor);
+    for (let c = 1; c < rows[r].length; c++) {
+      const item = String(r3[c] || r4[c] || "").trim();
+      const val = parseFloat(String(rows[r][c]).replace(/,/g,""));
+      if (!item || isNaN(val) || val === 0) continue;
+      if (!pState.rawItems.includes(item)) pState.rawItems.push(item);
+      pState.data[currentDong][item] = pState.data[currentDong][item] || {};
+      pState.data[currentDong][item][floor] = (pState.data[currentDong][item][floor] || 0) + val;
     }
   }
 }
 
 function initDongMapping() {
-  state.dongMap = {};
-  PROJECTS.forEach(p => {
-    state.projects[p.key].dongs.forEach(d => {
-      // 최종 필터링: 프로젝트 식별자와 일치하면 제거
-      if (PROJECTS.some(proj => proj.key === d.toLowerCase())) return;
-      const key = `${p.key}::${d}`;
-      state.dongMap[key] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
-    });
-  });
+  PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(d => {
+    state.dongMap[`${p.key}::${d}`] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
+  }));
 }
 
 function renderDongUI() {
   const q = $("dong-search").value.toLowerCase();
-  const keys = Object.keys(state.dongMap).filter(k => k.toLowerCase().includes(q));
-  dom.dongList.innerHTML = keys.sort().map(key => `
+  dom.dongList.innerHTML = Object.keys(state.dongMap).filter(k=>k.toLowerCase().includes(q)).sort().map(key => `
     <div class="dong-row">
       <div class="col-p-name"><strong>[${key.split("::")[0].toUpperCase()}]</strong> ${key.split("::")[1]}</div>
       <div style="width:40px; text-align:center; color:#ccc;">→</div>
@@ -167,12 +122,10 @@ function buildItemGroups() {
   const grouped = new Map();
   PROJECTS.forEach(p => state.projects[p.key].rawItems.forEach(raw => {
     const sig = raw.replace(/\s+/g, "").toUpperCase();
-    if (!grouped.has(sig)) {
-      grouped.set(sig, { id: Math.random().toString(36).substr(2, 9), canonical: raw, category: predictCategory(raw), items: { current: [], a: [], b: [], c: [] } });
-    }
+    if (!grouped.has(sig)) grouped.set(sig, { id:Math.random().toString(36).substr(2,9), canonical:raw, category:predictCategory(raw), items:{current:[],a:[],b:[],c:[]} });
     if (!grouped.get(sig).items[p.key].includes(raw)) grouped.get(sig).items[p.key].push(raw);
   }));
-  state.mappingGroups = [...grouped.values()].sort((a, b) => a.canonical.localeCompare(b.canonical));
+  state.mappingGroups = [...grouped.values()].sort((a,b)=>a.canonical.localeCompare(b.canonical));
 }
 
 function renderItemUI() {
@@ -180,12 +133,10 @@ function renderItemUI() {
   dom.itemList.innerHTML = state.mappingGroups.filter(g=>g.canonical.toLowerCase().includes(q)).map(g => `
     <div class="item-row">
       <div class="col-check"><input type="checkbox"></div>
-      <div class="col-orig">${PROJECTS.map(p=>`<span class="p-chip ${p.key}" title="${g.items[p.key][0]||''}">${g.items[p.key][0]||'-'}</span>`).join("")}</div>
+      <div class="col-orig">${PROJECTS.map(p=>`<span class="p-chip ${p.key}">${g.items[p.key][0]||'-'}</span>`).join("")}</div>
       <div class="col-edit"><input class="item-std-input" data-id="${g.id}" value="${g.canonical}" /></div>
       <div class="col-cat">
-        <select class="item-cat-select" data-id="${g.id}">
-          ${CATEGORIES.map(c => `<option value="${c}" ${g.category === c ? 'selected' : ''}>${c}</option>`).join("")}
-        </select>
+        <select class="item-cat-select" data-id="${g.id}">${CATEGORIES.map(c => `<option value="${c}" ${g.category === c ? 'selected' : ''}>${c}</option>`).join("")}</select>
       </div>
     </div>`).join("");
   document.querySelectorAll(".item-std-input, .item-cat-select").forEach(el => {
@@ -208,46 +159,35 @@ function applyNav(el) {
   };
 }
 
-$("btn-apply-all").onclick = () => {
-  state.mappedReady = true;
-  const stdDongs = [...new Set(Object.values(state.dongMap))].filter(Boolean).sort();
-  dom.filterDong.innerHTML = stdDongs.map(d => `<option value="${d}">${d}</option>`).join("");
-  renderCompare();
-  dom.tabs[2].click();
-};
-
-[$("filter-dong"), $("filter-category")].forEach(el => el.onchange = renderCompare);
-$("dong-search").oninput = renderDongUI;
-$("mapping-search").oninput = renderItemUI;
-
-function renderCompare() {
-  if (!state.mappedReady) return;
+/* 데이터 가공 로직 (공통 사용) */
+function getUnifiedData() {
   const targetStd = dom.filterDong.value;
-  const catFilter = $("filter-category").value;
-  if (!targetStd) return;
-
+  const catFilter = dom.filterCategory.value;
   const unified = { floors: [], items: {} };
 
   PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(orig => {
     if (state.dongMap[`${p.key}::${orig}`] !== targetStd) return;
     const dData = state.projects[p.key].data[orig];
     for (const raw in dData) {
-      const group = state.mappingGroups.find(x => x.items[p.key].includes(raw));
-      if (!group || (catFilter !== 'all' && group.category !== catFilter)) continue;
-      
-      unified.items[group.canonical] = unified.items[group.canonical] || { cat: group.category };
+      const g = state.mappingGroups.find(x => x.items[p.key].includes(raw));
+      if (!g || (catFilter !== 'all' && g.category !== catFilter)) continue;
+      unified.items[g.canonical] = unified.items[g.canonical] || { cat: g.category };
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
-        if (!unified.items[group.canonical][f]) unified.items[group.canonical][f] = {current:0, a:0, b:0, c:0};
-        unified.items[group.canonical][f][p.key] += dData[raw][f];
+        if (!unified.items[g.canonical][f]) unified.items[g.canonical][f] = {current:0, a:0, b:0, c:0};
+        unified.items[g.canonical][f][p.key] += dData[raw][f];
       }
     }
   }));
-
-  // 커스텀 정렬 적용
   unified.floors.sort(floorSorter);
-  renderRatioBoard(unified);
+  return unified;
+}
 
+/* 화면 렌더링 */
+function renderCompare() {
+  if (!state.mappedReady) return;
+  const unified = getUnifiedData();
+  renderRatioBoard(unified);
   dom.compareList.innerHTML = Object.keys(unified.items).map(name => {
     const v = unified.items[name];
     return `
@@ -274,21 +214,14 @@ function renderCompare() {
 
 function renderRatioBoard(unified) {
   const floors = unified.floors;
-  const pKeys = ['current', 'a', 'b', 'c'];
-  const data = pKeys.reduce((acc, k) => { acc[k] = {}; return acc; }, {});
-
+  const data = { current:{}, a:{}, b:{}, c:{} };
   floors.forEach(f => {
-    const getSum = (pKey, cat) => Object.keys(unified.items)
-      .filter(name => unified.items[name].cat === cat)
-      .reduce((sum, name) => sum + (unified.items[name][f]?.[pKey] || 0), 0);
-
-    pKeys.forEach(p => {
-      const conc = getSum(p, '콘크리트');
-      const rebar = getSum(p, '철근');
+    ['current','a','b','c'].forEach(p => {
+      const conc = Object.keys(unified.items).filter(n=>unified.items[n].cat==='콘크리트').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
+      const rebar = Object.keys(unified.items).filter(n=>unified.items[n].cat==='철근').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
       data[p][f] = conc > 0 ? (rebar / conc).toFixed(4) : "0.0000";
     });
   });
-
   dom.ratioBoard.innerHTML = `
     <table class="compare-matrix">
       <thead><tr><th>구분 (Ton/m³)</th>${floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
@@ -300,6 +233,67 @@ function renderRatioBoard(unified) {
       </tbody>
     </table>`;
 }
+
+/* Excel 다운로드 핵심 로직 */
+dom.btnExcel.onclick = () => {
+  if (!state.mappedReady) return alert("먼저 분석을 완료해주세요.");
+  const dong = dom.filterDong.value;
+  const unified = getUnifiedData();
+  const floors = unified.floors;
+  const aoa = [];
+
+  // 1. 비율 분석표 추가
+  aoa.push([`동: ${dong} - 층별 철근 지표 분석 (Ton / m³)`]);
+  aoa.push(["구분", ...floors]);
+  ['current', 'a', 'b', 'c'].forEach(p => {
+    const row = [p === 'current' ? '현재 프로젝트' : `유사 ${p.toUpperCase()}`];
+    floors.forEach(f => {
+      const conc = Object.keys(unified.items).filter(n=>unified.items[n].cat==='콘크리트').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
+      const rebar = Object.keys(unified.items).filter(n=>unified.items[n].cat==='철근').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
+      row.push(conc > 0 ? parseFloat((rebar / conc).toFixed(4)) : 0);
+    });
+    aoa.push(row);
+  });
+  aoa.push([]); // 빈 줄
+
+  // 2. 상세 아이템 비교표 추가
+  aoa.push(["아이템별 상세 비교표"]);
+  Object.keys(unified.items).forEach(name => {
+    const v = unified.items[name];
+    aoa.push([`항목: ${name}`, `분류: ${unified.items[name].cat}`]);
+    aoa.push(["구분", ...floors]);
+    
+    PROJECTS.forEach(p => {
+      const row = [p.name];
+      floors.forEach(f => row.push(v[f]?.[p.key] || 0));
+      aoa.push(row);
+    });
+    
+    // 평균 행 추가
+    const avgRow = ["유사 평균"];
+    floors.forEach(f => avgRow.push(((v[f]?.a||0) + (v[f]?.b||0) + (v[f]?.c||0)) / 3));
+    aoa.push(avgRow);
+    aoa.push([]); // 아이템 간 간격
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  XLSX.utils.book_append_sheet(wb, ws, `${dong}_비교분석`);
+  XLSX.writeFile(wb, `QS_비교표_${dong}.xlsx`);
+};
+
+/* 기타 버튼 이벤트 */
+$("btn-apply-all").onclick = () => {
+  state.mappedReady = true;
+  const stdDongs = [...new Set(Object.values(state.dongMap))].filter(Boolean).sort();
+  dom.filterDong.innerHTML = stdDongs.map(d => `<option value="${d}">${d}</option>`).join("");
+  renderCompare();
+  dom.tabs[2].click();
+};
+
+[$("filter-dong"), $("filter-category")].forEach(el => el.onchange = renderCompare);
+$("dong-search").oninput = renderDongUI;
+$("mapping-search").oninput = renderItemUI;
 
 dom.tabs.forEach(t => t.onclick = () => {
   dom.tabs.forEach(x => x.classList.remove('is-active')); t.classList.add('is-active');
