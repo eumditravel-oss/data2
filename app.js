@@ -1,695 +1,869 @@
 "use strict";
 
-const $ = (id) => document.getElementById(id);
-
-const fileInputs = { current: $("file-current"), A: $("file-a"), B: $("file-b"), C: $("file-c") };
-const fileListEls = { current: $("file-current-list"), A: $("file-a-list"), B: $("file-b-list"), C: $("file-c-list") };
-
-const compareBody = $("compare-body");
-const statusBox = $("status-box");
-const logBox = $("log-box");
-
-const btnExtract = $("btn-extract");
-const btnOpenMapping = $("btn-open-mapping");
-const btnCalc = $("btn-calc");
-const btnExportCsv = $("btn-export-csv");
-const btnReset = $("btn-reset");
-
-const mappingModal = $("mapping-modal");
-const mappingBackdrop = $("mapping-backdrop");
-const btnCloseMapping = $("btn-close-mapping");
-const btnApplySuggestions = $("btn-apply-suggestions");
-const btnSaveMapping = $("btn-save-mapping");
-const mappingBody = $("mapping-body");
-const typeaheadRoot = $("typeahead-root");
-
-// UI 요소
-const controlsBar = $("controls-bar");
-const modeRadios = document.querySelectorAll('input[name="compare-mode"]');
-const modeSingleUI = $("mode-single-ui");
-const modeSumUI = $("mode-sum-ui");
-const selectSection = $("select-section");
-const sumCheckboxes = $("sum-checkboxes");
-
-const PROJECT_KEYS = ["current", "A", "B", "C"];
-const PROJECT_LABELS = { current: "현재 프로젝트", A: "A 프로젝트", B: "B 프로젝트", C: "C 프로젝트" };
-
-const CATEGORY_OPTIONS = [
-  { value: "", label: "선택" }, { value: "레미콘", label: "레미콘" },
-  { value: "거푸집", label: "거푸집" }, { value: "철근", label: "철근" }, { value: "제외", label: "제외" }
-];
-const INCLUDE_OPTIONS = [ { value: "Y", label: "반영" }, { value: "N", label: "제외" } ];
-const DEFAULT_ITEM_CODE_OPTIONS = ["240", "270", "300", "180", "3회", "4회", "유로", "알폼", "갱폼", "합벽", "보밑면", "데크", "방수턱", "H10", "H13", "H16", "H19", "H22", "H25", "H29"];
-
-const BASE_LAYOUT = [
-  { itemCode: "240", item: "레미콘", spec: "25-24-15", category: "레미콘" },
-  { itemCode: "270", item: "레미콘", spec: "25-27-15", category: "레미콘" },
-  { itemCode: "300", item: "레미콘", spec: "25-30-15", category: "레미콘" },
-  { itemCode: "180", item: "레미콘", spec: "25-18-08", category: "레미콘" },
-  { itemCode: "3회", item: "거푸집", spec: "3회", category: "거푸집" },
-  { itemCode: "4회", item: "거푸집", spec: "4회", category: "거푸집" },
-  { itemCode: "유로", item: "거푸집", spec: "유로", category: "거푸집" },
-  { itemCode: "알폼", item: "거푸집", spec: "알폼", category: "거푸집" },
-  { itemCode: "갱폼", item: "거푸집", spec: "갱폼", category: "거푸집" },
-  { itemCode: "합벽", item: "거푸집", spec: "합벽", category: "거푸집" },
-  { itemCode: "보밑면", item: "거푸집", spec: "보밑면", category: "거푸집" },
-  { itemCode: "데크", item: "거푸집", spec: "데크플레이트", category: "거푸집" },
-  { itemCode: "방수턱", item: "거푸집", spec: "방수턱", category: "거푸집" },
-  { itemCode: "H10", item: "철근", spec: "H10", category: "철근" },
-  { itemCode: "H13", item: "철근", spec: "H13", category: "철근" },
-  { itemCode: "H16", item: "철근", spec: "H16", category: "철근" },
-  { itemCode: "H19", item: "철근", spec: "H19", category: "철근" },
-  { itemCode: "H22", item: "철근", spec: "H22", category: "철근" },
-  { itemCode: "H25", item: "철근", spec: "H25", category: "철근" },
-  { itemCode: "H29", item: "철근", spec: "H29", category: "철근" },
+/* =========================
+   기본 상태
+========================= */
+const PROJECTS = [
+  { key: "current", name: "현재 프로젝트" },
+  { key: "a", name: "A 프로젝트" },
+  { key: "b", name: "B 프로젝트" },
+  { key: "c", name: "C 프로젝트" }
 ];
 
 const state = {
-  rawEntriesByProject: { current: [], A: [], B: [], C: [] },
-  uniqueNames: [], mappingConfig: {}, itemCodeOptions: [...DEFAULT_ITEM_CODE_OPTIONS],
-  typeahead: { targetInput: null, targetKey: "", items: [], activeIndex: -1 },
-  
-  // UI 연동용 상태
-  buildings: [],        
-  allSections: [],      
-  compareMode: "single", // "single" | "sum"
-  activeSection: "",    
-  sumChecked: new Set() 
+  projects: {
+    current: createEmptyProjectState(),
+    a: createEmptyProjectState(),
+    b: createEmptyProjectState(),
+    c: createEmptyProjectState()
+  },
+  mappings: {},           // rawKey => canonicalName
+  parsedReady: false,
+  mappedReady: false
 };
 
-function setStatus(text) { statusBox.textContent = text; }
-function setLog(text) { logBox.textContent = text; }
-function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
-function normalizeText(value) { return String(value ?? "").replace(/\s+/g, "").trim().toUpperCase(); }
-function normalizeDisplayText(value) { return String(value ?? "").replace(/\s+/g, " ").trim(); }
-function toNumber(value) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const cleaned = String(value ?? "").replace(/,/g, "").trim();
-  if (!cleaned) return 0;
-  return Number.isFinite(Number(cleaned)) ? Number(cleaned) : 0;
-}
-function fmtNumber(value) { return Number(value || 0).toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
-function fmtRatio(value) { return (!value && value !== 0) ? "0%" : (Number(value) * 100).toFixed(0) + "%"; }
-function ratioClass(value) { if (!value) return ""; if (value < 0.9) return "bad"; if (value <= 1.1) return "good"; return "warn"; }
-
-function updateFileListText() {
-  for (const key of PROJECT_KEYS) {
-    const files = Array.from(fileInputs[key].files || []);
-    fileListEls[key].textContent = files.length ? files.map(f => f.name).join("\n") : "선택된 파일 없음";
-  }
+function createEmptyProjectState() {
+  return {
+    files: [],
+    rawItems: [],         // 원본 아이템명 목록
+    dongs: [],            // 동 목록
+    floors: [],           // 층 목록
+    data: {}              // data[dong][rawItem][floor] = value
+  };
 }
 
-function openModal() { mappingModal.classList.add("is-open"); mappingModal.setAttribute("aria-hidden", "false"); }
-function closeModal() { mappingModal.classList.remove("is-open"); mappingModal.setAttribute("aria-hidden", "true"); hideTypeahead(); }
-function sortUniqueStrings(list) { return [...new Set(list.filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")); }
-function ensureItemCodeOption(value) {
-  const text = normalizeDisplayText(value);
-  if (text && !state.itemCodeOptions.includes(text)) {
-    state.itemCodeOptions.push(text); state.itemCodeOptions = sortUniqueStrings(state.itemCodeOptions);
-  }
-}
+/* =========================
+   DOM
+========================= */
+const $ = (id) => document.getElementById(id);
 
-/** -----------------------------
- * 핵심 로직: 셀 병합 2행 단위 층별 파싱
- * ----------------------------- */
-function parseSheetEntries(rows, projectKey, fileName) {
-  const headerRow3 = rows[2] || []; 
-  const headerRow4 = rows[3] || []; 
-  const colStart = 3; // 보통 데이터는 D열(인덱스 3)부터 시작
-  const colEnd = Math.max(headerRow3.length, headerRow4.length) - 1;
-  const entries = [];
+const dom = {
+  tabs: [...document.querySelectorAll(".tab")],
+  tabPanels: {
+    upload: $("tab-upload"),
+    mapping: $("tab-mapping"),
+    compare: $("tab-compare")
+  },
 
-  let curBldg = "";
-  let curFloor = "";
+  fileInputs: {
+    current: $("file-current"),
+    a: $("file-a"),
+    b: $("file-b"),
+    c: $("file-c")
+  },
 
-  for (let r = 5; r < rows.length; r++) {
-    let row = rows[r] || [];
-    if (row.length === 0) continue;
+  fileNames: {
+    current: $("name-current"),
+    a: $("name-a"),
+    b: $("name-b"),
+    c: $("name-c")
+  },
 
-    let c0 = normalizeDisplayText(row[0]); // 동
-    let c1 = normalizeDisplayText(row[1]); // 층
-    let c2 = normalizeDisplayText(row[2]); // 수량합계, 면적합계 등
+  fileLists: {
+    current: $("list-current"),
+    a: $("list-a"),
+    b: $("list-b"),
+    c: $("list-c")
+  },
 
-    // 아래로 내려가며 동/층 이름 채우기 (병합 풀기 효과)
-    if (c0) curBldg = c0;
-    if (c1) curFloor = c1;
+  btnParse: $("btn-parse"),
+  btnReset: $("btn-reset"),
 
-    if (!curBldg && !curFloor) continue;
+  uploadStatus: $("upload-status"),
 
-    // '계', '총합계' 등 합계 단어 감지 및 정리
-    let fName = curFloor;
-    if (c0.includes("계") || c1.includes("계") || c2.includes("소계")) {
-      fName = "합계";
-    }
-    if (curBldg.includes("총") || curBldg.includes("전체")) {
-      curBldg = "전체";
-      fName = "합계";
-    }
+  mappingProjects: $("mapping-projects"),
+  mappingTbody: $("mapping-tbody"),
+  mappingStatus: $("mapping-status"),
+  mappingSearch: $("mapping-search"),
+  btnAutofill: $("btn-autofill"),
+  btnApplyMapping: $("btn-apply-mapping"),
+  canonicalOptions: $("canonical-options"),
 
-    let secName = `${curBldg} ${fName}`.trim();
+  filterDong: $("filter-dong"),
+  filterItem: $("filter-item"),
+  filterMode: $("filter-mode"),
+  btnRenderCompare: $("btn-render-compare"),
+  compareThead: $("compare-thead"),
+  compareTbody: $("compare-tbody"),
+  compareStatus: $("compare-status"),
+  summaryCards: $("summary-cards")
+};
 
-    for (let c = colStart; c <= colEnd; c++) {
-      let n3 = normalizeDisplayText(headerRow3[c]);
-      let n4 = normalizeDisplayText(headerRow4[c]);
-      
-      let targetName = "";
-      // 💡 핵심: 1행(수량합계)이면 3행 타이틀, 2행(면적합계)이면 4행 타이틀 강제 매칭
-      if (c2.includes("수량")) targetName = n3;
-      else if (c2.includes("면적")) targetName = n4;
-      else targetName = n3 || n4; // 예외 시 있는 값 우선
-
-      if (!targetName) continue;
-
-      let val = toNumber(row[c]);
-      if (val !== 0) {
-        entries.push({
-          projectKey, building: curBldg, floor: fName, section: secName,
-          rawName: targetName, normalizedName: normalizeText(targetName), qty: val
-        });
-      }
-    }
-  }
-  return entries;
-}
-
-async function parseWorkbookFile(file, projectKey) {
-  const arrayBuffer = await file.arrayBuffer();
-  const workbook = XLSX.read(arrayBuffer, { type: "array" });
-  const allEntries = []; let totalEntryCount = 0; 
-
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
-    const entries = parseSheetEntries(rows, projectKey, file.name);
-    allEntries.push(...entries);
-    totalEntryCount += entries.length;
-  }
-  return { projectKey, fileName: file.name, entryCount: totalEntryCount, entries: allEntries };
-}
-
-/** -----------------------------
- * UI 연동 (라디오버튼, 드롭다운, 체크박스 제어)
- * ----------------------------- */
-function updateControlsUI() {
-  controlsBar.style.display = "block";
-  
-  if (state.compareMode === "single") {
-    modeSingleUI.style.display = "block";
-    modeSumUI.style.display = "none";
-    
-    selectSection.innerHTML = "";
-    state.allSections.forEach(sec => {
-      const opt = document.createElement("option");
-      opt.value = sec; opt.textContent = sec;
-      if(state.activeSection === sec) opt.selected = true;
-      selectSection.appendChild(opt);
-    });
-  } else {
-    modeSingleUI.style.display = "none";
-    modeSumUI.style.display = "block";
-
-    sumCheckboxes.innerHTML = state.buildings.map(b => `
-      <label style="display:flex; align-items:center; gap:6px; font-size:14px; cursor:pointer; background:#fff; padding:6px 12px; border:1px solid #cbd5e1; border-radius:20px;">
-        <input type="checkbox" value="${b}" class="sum-chk" ${state.sumChecked.has(b) ? 'checked' : ''} style="width:16px; height:16px;">
-        ${b}
-      </label>
-    `).join("");
-
-    document.querySelectorAll(".sum-chk").forEach(chk => {
-      chk.addEventListener("change", (e) => {
-        if(e.target.checked) state.sumChecked.add(e.target.value);
-        else state.sumChecked.delete(e.target.value);
-        triggerRecalc();
-      });
-    });
-  }
-}
-
-modeRadios.forEach(radio => {
-  radio.addEventListener("change", (e) => {
-    state.compareMode = e.target.value;
-    updateControlsUI();
-    triggerRecalc();
+/* =========================
+   탭 전환
+========================= */
+dom.tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const target = tab.dataset.tab;
+    setActiveTab(target);
   });
 });
 
-selectSection.addEventListener("change", (e) => {
-  state.activeSection = e.target.value;
-  triggerRecalc();
+function setActiveTab(tabKey) {
+  dom.tabs.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === tabKey));
+  Object.entries(dom.tabPanels).forEach(([k, panel]) => {
+    panel.classList.toggle("is-active", k === tabKey);
+  });
+}
+
+/* =========================
+   파일 선택 UI
+========================= */
+PROJECTS.forEach(({ key }) => {
+  dom.fileInputs[key].addEventListener("change", (e) => {
+    const files = [...(e.target.files || [])];
+    state.projects[key].files = files;
+    renderFileUI(key);
+  });
 });
 
-function triggerRecalc() {
-  if (state.uniqueNames.length === 0) return;
-  const rows = calcCompareRows();
-  renderCompareTable(rows);
+function renderFileUI(projectKey) {
+  const files = state.projects[projectKey].files;
+  dom.fileNames[projectKey].textContent = files.length
+    ? `${files.length}개 파일 선택됨`
+    : "선택된 파일 없음";
+
+  dom.fileLists[projectKey].innerHTML = files.length
+    ? files.map(f => `<span class="file-chip">${escapeHtml(f.name)}</span>`).join("")
+    : "";
 }
 
-/** -----------------------------
- * 명칭 매핑 및 제안 (기존과 동일)
- * ----------------------------- */
-function suggestMappingByName(rawName) {
-  const t = normalizeText(rawName);
-  const result = { include: "Y", category: "", itemCode: "", note: "" };
-
-  if (t.includes("24MPA")) { result.category = "레미콘"; result.itemCode = "240"; result.note = "24MPA → 240"; return result; }
-  if (t.includes("27MPA")) { result.category = "레미콘"; result.itemCode = "270"; result.note = "27MPA → 270"; return result; }
-  if (t.includes("30MPA")) { result.category = "레미콘"; result.itemCode = "300"; result.note = "30MPA → 300"; return result; }
-  if (t.includes("현치/무근") || t.includes("버림")) { result.category = "레미콘"; result.itemCode = "180"; result.note = "버림/현치무근 → 180"; return result; }
-  if (t.includes("현치/구체") || t === "합벽채움" || t.includes("ACT-INSIDE")) { result.category = "레미콘"; result.itemCode = "240"; result.note = "구체/합벽/ACT-INSIDE 계열 → 240"; return result; }
-  if (t === "3회") { result.category = "거푸집"; result.itemCode = "3회"; result.note = "3회 → 3회"; return result; }
-  if (t === "4회") { result.category = "거푸집"; result.itemCode = "4회"; result.note = "4회 → 4회"; return result; }
-  if (t === "유로") { result.category = "거푸집"; result.itemCode = "유로"; result.note = "유로 → 유로"; return result; }
-  if (t === "원형" || t === "CURVED") { result.category = "거푸집"; result.itemCode = "유로"; result.note = "원형/CURVED → 유로"; return result; }
-  if (t === "알폼-H" || t === "알폼-V" || t === "알폼") { result.category = "거푸집"; result.itemCode = "알폼"; result.note = "알폼-H/V → 알폼"; return result; }
-  if (t === "갱폼" || t === "갱폼-2") { result.category = "거푸집"; result.itemCode = "갱폼"; result.note = "갱폼/갱폼-2 → 갱폼"; return result; }
-  if (t === "합벽") { result.category = "거푸집"; result.itemCode = "합벽"; result.note = "합벽 → 합벽"; return result; }
-  if (t === "보밑면") { result.category = "거푸집"; result.itemCode = "보밑면"; result.note = "보밑면 → 보밑면"; return result; }
-  if (t === "DECK") { result.category = "거푸집"; result.itemCode = "데크"; result.note = "DECK → 데크"; return result; }
-  if (t === "방수턱") { result.category = "거푸집"; result.itemCode = "방수턱"; result.note = "방수턱 → 방수턱"; return result; }
-  if (t === "H10") { result.category = "철근"; result.itemCode = "H10"; result.note = "H10 → H10"; return result; }
-  if (t === "H13") { result.category = "철근"; result.itemCode = "H13"; result.note = "H13 → H13"; return result; }
-  if (t === "H16") { result.category = "철근"; result.itemCode = "H16"; result.note = "H16 → H16"; return result; }
-  if (t === "H19") { result.category = "철근"; result.itemCode = "H19"; result.note = "H19 → H19"; return result; }
-  if (t === "D22" || t === "H22") { result.category = "철근"; result.itemCode = "H22"; result.note = "D22/H22 → H22"; return result; }
-  if (t === "H25") { result.category = "철근"; result.itemCode = "H25"; result.note = "H25 → H25"; return result; }
-  if (t === "H29") { result.category = "철근"; result.itemCode = "H29"; result.note = "H29 → H29"; return result; }
-
-  result.include = "N"; result.category = "제외"; result.itemCode = ""; result.note = "자동 제안 없음";
-  return result;
-}
-
-function buildUniqueNamesFromEntries() {
-  const nameMap = new Map();
-  for (const pk of PROJECT_KEYS) {
-    for (const entry of state.rawEntriesByProject[pk]) {
-      if (!nameMap.has(entry.normalizedName)) nameMap.set(entry.normalizedName, { rawName: entry.rawName, normalizedName: entry.normalizedName });
-    }
-  }
-  state.uniqueNames = Array.from(nameMap.values()).sort((a, b) => a.rawName.localeCompare(b.rawName, "ko"));
-}
-
-function ensureMappingConfig() {
-  for (const item of state.uniqueNames) {
-    if (!state.mappingConfig[item.normalizedName]) {
-      const suggested = suggestMappingByName(item.rawName);
-      state.mappingConfig[item.normalizedName] = suggested;
-      if (suggested.itemCode) ensureItemCodeOption(suggested.itemCode);
-    }
-  }
-}
-
-function optionHtml(list, selectedValue) {
-  return list.map((opt) => `<option value="${escapeHtml(opt.value)}" ${String(opt.value) === String(selectedValue) ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("");
-}
-
-function getCategoryClass(category) {
-  if (category === "레미콘") return "is-concrete"; if (category === "거푸집") return "is-form"; if (category === "철근") return "is-rebar"; return "is-exclude";
-}
-function getRowIncludeClass(include) { return include === "Y" ? "is-included" : "is-excluded"; }
-
-function renderMappingTable() {
-  if (!state.uniqueNames.length) { mappingBody.innerHTML = `<tr><td colspan="5">추출된 명칭이 없습니다.</td></tr>`; return; }
-  const html = state.uniqueNames.map((item) => {
-    const config = state.mappingConfig[item.normalizedName] || suggestMappingByName(item.rawName);
-    const suggestion = suggestMappingByName(item.rawName);
-    return `
-      <tr class="map-row ${getRowIncludeClass(config.include)}" data-name-key="${escapeHtml(item.normalizedName)}">
-        <td>${escapeHtml(item.rawName)}</td>
-        <td><select class="map-include">${optionHtml(INCLUDE_OPTIONS, config.include)}</select></td>
-        <td><select class="map-category ${getCategoryClass(config.category)}">${optionHtml(CATEGORY_OPTIONS, config.category)}</select></td>
-        <td class="itemcode-cell">
-          <div class="itemcode-editor">
-            <input type="text" class="itemcode-input" value="${escapeHtml(config.itemCode || "")}" autocomplete="off" placeholder="직접 입력 또는 Alt+↓" />
-            <button type="button" class="itemcode-add-btn">추가</button>
-          </div>
-        </td>
-        <td class="mapping-suggest">${escapeHtml(suggestion.note || "-")}</td>
-      </tr>`;
-  }).join("");
-  mappingBody.innerHTML = html;
-  bindMappingRowBehaviors();
-}
-
-function applyVisualStateToRow(row) {
-  const includeSelect = row.querySelector(".map-include"); const categorySelect = row.querySelector(".map-category");
-  const include = includeSelect?.value || "N"; const category = categorySelect?.value || "";
-  row.classList.remove("is-included", "is-excluded"); row.classList.add(include === "Y" ? "is-included" : "is-excluded");
-  categorySelect.classList.remove("is-concrete", "is-form", "is-rebar", "is-exclude"); categorySelect.classList.add(getCategoryClass(category));
-}
-
-function bindMappingRowBehaviors() {
-  const rows = Array.from(mappingBody.querySelectorAll("tr[data-name-key]"));
-  rows.forEach((row) => {
-    const includeSelect = row.querySelector(".map-include"); const categorySelect = row.querySelector(".map-category");
-    const itemInput = row.querySelector(".itemcode-input"); const addBtn = row.querySelector(".itemcode-add-btn");
-    applyVisualStateToRow(row);
-    includeSelect.addEventListener("change", () => applyVisualStateToRow(row)); categorySelect.addEventListener("change", () => applyVisualStateToRow(row));
-    itemInput.addEventListener("focus", () => showTypeaheadForInput(itemInput, row.dataset.nameKey));
-    itemInput.addEventListener("input", () => showTypeaheadForInput(itemInput, row.dataset.nameKey));
-    itemInput.addEventListener("keydown", (e) => {
-      if (e.altKey && e.key === "ArrowDown") { e.preventDefault(); showTypeaheadForInput(itemInput, row.dataset.nameKey, true); return; }
-      if (typeaheadRoot.hidden || state.typeahead.targetInput !== itemInput) return;
-      if (e.key === "ArrowDown") { e.preventDefault(); moveTypeahead(1); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); moveTypeahead(-1); return; }
-      if (e.key === "Enter") {
-        if (state.typeahead.activeIndex >= 0) { e.preventDefault(); commitTypeaheadSelection(state.typeahead.activeIndex); }
-        else { const text = normalizeDisplayText(itemInput.value); if (text) { e.preventDefault(); commitManualItemCode(row.dataset.nameKey, itemInput, text); } }
-        return;
-      }
-      if (e.key === "Escape") hideTypeahead();
-    });
-    itemInput.addEventListener("blur", () => { setTimeout(() => { if (document.activeElement && typeaheadRoot.contains(document.activeElement)) return; hideTypeahead(); }, 120); });
-    addBtn.addEventListener("click", () => { const text = normalizeDisplayText(itemInput.value); if (!text) return; commitManualItemCode(row.dataset.nameKey, itemInput, text); });
-  });
-}
-
-function saveMappingFromUI() {
-  const rows = Array.from(mappingBody.querySelectorAll("tr[data-name-key]"));
-  rows.forEach((row) => {
-    const key = row.dataset.nameKey; const include = row.querySelector(".map-include")?.value || "Y";
-    const category = row.querySelector(".map-category")?.value || ""; const itemCode = normalizeDisplayText(row.querySelector(".itemcode-input")?.value || "");
-    if (itemCode) ensureItemCodeOption(itemCode);
-    state.mappingConfig[key] = { include, category, itemCode, note: suggestMappingByName(key).note || "" };
-  });
-}
-
-function applyAutoSuggestionsToCurrentMapping() {
-  for (const item of state.uniqueNames) {
-    const suggested = suggestMappingByName(item.rawName);
-    state.mappingConfig[item.normalizedName] = suggested;
-    if (suggested.itemCode) ensureItemCodeOption(suggested.itemCode);
-  }
-  renderMappingTable();
-}
-
-/** -----------------------------
- * 타입어헤드 자동완성 (생략없이)
- * ----------------------------- */
-function getFilteredItemCodeOptions(keyword, forceAll = false) {
-  const q = normalizeText(keyword); const list = sortUniqueStrings(state.itemCodeOptions);
-  if (forceAll || !q) return list.slice(0, 200);
-  const starts = []; const includes = [];
-  for (const item of list) { const n = normalizeText(item); if (n.startsWith(q)) starts.push(item); else if (n.includes(q)) includes.push(item); }
-  return [...starts, ...includes].slice(0, 200);
-}
-function positionTypeahead(input) { const rect = input.getBoundingClientRect(); const width = Math.max(rect.width, 240); typeaheadRoot.style.left = `${rect.left + window.scrollX}px`; typeaheadRoot.style.top = `${rect.bottom + window.scrollY + 4}px`; typeaheadRoot.style.width = `${width}px`; }
-function renderTypeahead(items) {
-  state.typeahead.items = items; state.typeahead.activeIndex = items.length ? 0 : -1;
-  if (!items.length) { typeaheadRoot.innerHTML = `<div class="typeahead-empty">일치하는 항목이 없습니다.</div>`; return; }
-  typeaheadRoot.innerHTML = `<div class="typeahead-list">${items.map((item, idx) => `<button type="button" class="typeahead-item ${idx === 0 ? "is-active" : ""}" data-index="${idx}">${escapeHtml(item)}</button>`).join("")}</div>`;
-  Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((btn) => { btn.addEventListener("mousedown", (e) => e.preventDefault()); btn.addEventListener("click", () => commitTypeaheadSelection(Number(btn.dataset.index))); });
-}
-function showTypeaheadForInput(input, nameKey, forceAll = false) { state.typeahead.targetInput = input; state.typeahead.targetKey = nameKey; const items = getFilteredItemCodeOptions(input.value, forceAll); positionTypeahead(input); renderTypeahead(items); typeaheadRoot.hidden = false; }
-function hideTypeahead() { typeaheadRoot.hidden = true; typeaheadRoot.innerHTML = ""; state.typeahead.targetInput = null; state.typeahead.targetKey = ""; state.typeahead.items = []; state.typeahead.activeIndex = -1; }
-function refreshTypeaheadActive() { Array.from(typeaheadRoot.querySelectorAll(".typeahead-item")).forEach((el, idx) => { el.classList.toggle("is-active", idx === state.typeahead.activeIndex); }); }
-function moveTypeahead(delta) {
-  const len = state.typeahead.items.length; if (!len) return; const next = state.typeahead.activeIndex + delta;
-  if (next < 0) state.typeahead.activeIndex = len - 1; else if (next >= len) state.typeahead.activeIndex = 0; else state.typeahead.activeIndex = next;
-  refreshTypeaheadActive();
-}
-function commitTypeaheadSelection(index) {
-  const value = state.typeahead.items[index]; if (!value || !state.typeahead.targetInput) return;
-  state.typeahead.targetInput.value = value; ensureItemCodeOption(value); hideTypeahead(); state.typeahead.targetInput?.focus();
-}
-function commitManualItemCode(nameKey, input, text) {
-  ensureItemCodeOption(text); input.value = text;
-  const row = input.closest("tr[data-name-key]"); const category = row.querySelector(".map-category")?.value || ""; const include = row.querySelector(".map-include")?.value || "Y";
-  state.mappingConfig[nameKey] = { include, category, itemCode: text, note: suggestMappingByName(nameKey).note || "" };
-  hideTypeahead(); setStatus(`아이템구분 추가: ${text}`);
-}
-
-function clearDataState() {
-  state.rawEntriesByProject = { current: [], A: [], B: [], C: [] };
-  state.uniqueNames = []; state.mappingConfig = {}; state.lastCompareRows = []; state.itemCodeOptions = [...DEFAULT_ITEM_CODE_OPTIONS];
-  state.buildings = []; state.allSections = []; state.activeSection = ""; state.sumChecked.clear();
-}
-
-async function extractNamesFromFiles() {
-  clearDataState();
-  const logs = []; let totalFileCount = 0;
-  for (const pk of PROJECT_KEYS) {
-    const files = Array.from(fileInputs[pk].files || []);
-    totalFileCount += files.length;
-    for (const file of files) {
-      const parsed = await parseWorkbookFile(file, pk);
-      state.rawEntriesByProject[pk].push(...parsed.entries);
-      logs.push(`[${PROJECT_LABELS[pk]}] 파일: ${file.name}`, `- 총 추출건수: ${parsed.entryCount}`, "");
-    }
-  }
-  if (!totalFileCount) throw new Error("업로드된 파일이 없습니다.");
-  
-  // 데이터에서 존재하는 고유 동 및 동/층 콤보 추출
-  const bldgSet = new Set();
-  const secSet = new Set();
-
-  PROJECT_KEYS.forEach(pk => {
-    state.rawEntriesByProject[pk].forEach(e => {
-      if (e.building && e.building !== "전체") bldgSet.add(e.building);
-      secSet.add(e.section);
-    });
+/* =========================
+   초기화
+========================= */
+dom.btnReset.addEventListener("click", () => {
+  PROJECTS.forEach(({ key }) => {
+    state.projects[key] = createEmptyProjectState();
+    dom.fileInputs[key].value = "";
+    renderFileUI(key);
   });
 
-  state.buildings = Array.from(bldgSet).sort();
-  state.buildings.forEach(b => state.sumChecked.add(b)); // 기본적으로 다중합산 시 모두 체크
+  state.mappings = {};
+  state.parsedReady = false;
+  state.mappedReady = false;
 
-  // 섹션 정렬 (합계가 있는 것을 위로, 나머지는 숫자 순)
-  state.allSections = Array.from(secSet).sort((a, b) => {
-    if (a.includes("합계") && !b.includes("합계")) return -1;
-    if (!a.includes("합계") && b.includes("합계")) return 1;
-    return a.localeCompare(b, "ko", {numeric:true});
-  });
+  dom.uploadStatus.textContent = "";
+  dom.mappingProjects.innerHTML = "";
+  dom.mappingTbody.innerHTML = `<tr><td colspan="4" class="empty">업로드 후 아이템을 추출하면 여기에 표시됩니다.</td></tr>`;
+  dom.mappingStatus.textContent = "";
+  dom.filterDong.innerHTML = "";
+  dom.compareThead.innerHTML = "";
+  dom.compareTbody.innerHTML = `<tr><td class="empty">비교할 데이터를 먼저 준비해 주세요.</td></tr>`;
+  dom.compareStatus.textContent = "";
+  dom.summaryCards.innerHTML = "";
 
-  if(state.allSections.length > 0) state.activeSection = state.allSections[0];
+  setActiveTab("upload");
+});
 
-  buildUniqueNamesFromEntries(); ensureMappingConfig();
-  updateControlsUI();
-  
-  btnOpenMapping.disabled = state.uniqueNames.length === 0; btnCalc.disabled = state.uniqueNames.length === 0;
-  setLog(logs.join("\n") || "로그가 없습니다."); setStatus(`명칭 추출 완료: ${state.uniqueNames.length}개`);
-}
-
-/** -----------------------------
- * 핵심 로직: 비교표 계산 (모드에 따른 조건부 합산)
- * ----------------------------- */
-function getMappedEntriesByProject() {
-  const result = { current: [], A: [], B: [], C: [] };
-  for (const pk of PROJECT_KEYS) {
-    result[pk] = state.rawEntriesByProject[pk].map((entry) => {
-      const config = state.mappingConfig[entry.normalizedName];
-      if (!config || config.include !== "Y" || !config.category || config.category === "제외" || !config.itemCode) return null;
-      return { ...entry, mappedCategory: config.category, mappedItemCode: config.itemCode };
-    }).filter(Boolean);
-  }
-  return result;
-}
-
-function calcCompareRows() {
-  const mappedEntries = getMappedEntriesByProject();
-  
-  // 모든 데이터를 키로 묶어놓기
-  const agg = { current: {}, A: {}, B: {}, C: {} };
-  const allDynamicKeys = new Set();
-  const hardcodedKeys = new Set(BASE_LAYOUT.map(r => `__${r.category}__${r.itemCode}`));
-
-  for (const pk of PROJECT_KEYS) {
-    for (const entry of mappedEntries[pk]) {
-      // 키 포맷: 1동 합계__레미콘__240
-      const key = `${entry.section}__${entry.mappedCategory}__${entry.mappedItemCode}`;
-      agg[pk][key] = (agg[pk][key] || 0) + entry.qty;
-      
-      if (!hardcodedKeys.has(`__${entry.mappedCategory}__${entry.mappedItemCode}`)) {
-        allDynamicKeys.add(`${entry.mappedCategory}__${entry.mappedItemCode}`);
-      }
-    }
-  }
-
-  const rows = [];
-  const isSumMode = state.compareMode === "sum";
-  const secTitle = isSumMode ? `다중 동 합산 (${Array.from(state.sumChecked).join(", ")})` : state.activeSection;
-
-  rows.push({ type: "section", section: secTitle });
-
-  const categoryOrder = ["레미콘", "거푸집", "철근"];
-
-  // 지정된 양식(레미콘, 거푸집, 철근) 순서대로 렌더링
-  for (const cat of categoryOrder) {
-    const hardcodedForCat = BASE_LAYOUT.filter(r => r.category === cat);
-    
-    // 1. 하드코딩 항목 먼저 추가
-    for (const row of hardcodedForCat) {
-      let cur = 0, A = 0, B = 0, C = 0;
-      
-      if (isSumMode) {
-        for(const bldg of state.sumChecked) {
-          const key = `${bldg} 합계__${cat}__${row.itemCode}`;
-          cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
-        }
-      } else {
-        const key = `${state.activeSection}__${cat}__${row.itemCode}`;
-        cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
-      }
-
-      const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
-      rows.push({ ...row, section: secTitle, current: cur, A, B, C, avg, ratio, note: row.note || "" });
-    }
-
-    // 2. 사용자가 추가한 항목을 해당 카테고리 맨 밑에 찰싹 붙임
-    for (const dynKey of allDynamicKeys) {
-      const parts = dynKey.split("__");
-      if (parts[0] === cat) {
-        const ic = parts[1];
-        let cur = 0, A = 0, B = 0, C = 0;
-        
-        if (isSumMode) {
-          for(const bldg of state.sumChecked) {
-            const key = `${bldg} 합계__${cat}__${ic}`;
-            cur += agg.current[key] || 0; A += agg.A[key] || 0; B += agg.B[key] || 0; C += agg.C[key] || 0;
-          }
-        } else {
-          const key = `${state.activeSection}__${cat}__${ic}`;
-          cur = agg.current[key] || 0; A = agg.A[key] || 0; B = agg.B[key] || 0; C = agg.C[key] || 0;
-        }
-
-        const avg = (A + B + C) / 3; const ratio = cur === 0 ? 0 : avg / cur;
-        rows.push({ section: secTitle, itemCode: ic, item: cat, spec: ic, category: cat, current: cur, A, B, C, avg, ratio, note: "사용자 추가" });
-      }
-    }
-  }
-  
-  state.lastCompareRows = rows;
-  return rows;
-}
-
-function renderCompareTable(rows) {
-  if (!rows.length) {
-    compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">비교표가 아직 생성되지 않았습니다.</td></tr>`;
+/* =========================
+   EXCEL 읽기 / 파싱
+========================= */
+dom.btnParse.addEventListener("click", async () => {
+  const hasAny = PROJECTS.some(({ key }) => state.projects[key].files.length > 0);
+  if (!hasAny) {
+    dom.uploadStatus.textContent = "업로드된 파일이 없습니다.";
     return;
   }
-  
-  // 화면에는 섹션 라인을 숨기고 순수 데이터 행만 표출 (헤더는 이미 HTML에 고정되어 있음)
-  const filteredRows = rows.filter(r => r.type !== "section");
-  const html = filteredRows.map((row) => {
-    return `
-      <tr>
-        <td style="font-weight:bold; color:#1d4ed8;">${escapeHtml(row.section)}</td>
-        <td>${escapeHtml(row.itemCode)}</td>
-        <td>${escapeHtml(row.item)}</td>
-        <td>${escapeHtml(row.spec)}</td>
-        <td class="num">${fmtNumber(row.current)}</td>
-        <td class="num">${fmtNumber(row.A)}</td>
-        <td class="num">${fmtNumber(row.B)}</td>
-        <td class="num">${fmtNumber(row.C)}</td>
-        <td class="num">${fmtNumber(row.avg)}</td>
-        <td class="num ratio ${ratioClass(row.ratio)}">${fmtRatio(row.ratio)}</td>
-        <td>${escapeHtml(row.note || "")}</td>
-      </tr>`;
-  }).join("");
-  compareBody.innerHTML = html;
+
+  dom.uploadStatus.textContent = "EXCEL 파일을 읽는 중입니다...";
+
+  try {
+    for (const { key } of PROJECTS) {
+      const projectState = createEmptyProjectState();
+      projectState.files = state.projects[key].files.slice();
+
+      for (const file of state.projects[key].files) {
+        const parsed = await parseExcelFile(file);
+        mergeParsedProject(projectState, parsed);
+      }
+
+      projectState.rawItems = uniqueSort(projectState.rawItems);
+      projectState.dongs = uniqueSort(projectState.dongs, dongSorter);
+      projectState.floors = uniqueSort(projectState.floors, floorSorter);
+
+      state.projects[key] = projectState;
+    }
+
+    state.parsedReady = true;
+    state.mappedReady = false;
+
+    renderMappingProjectLists();
+    renderMappingTable();
+    populateCanonicalDatalist();
+
+    const statusLines = PROJECTS.map(({ key, name }) => {
+      const p = state.projects[key];
+      return `${name} : 파일 ${p.files.length}개 / 동 ${p.dongs.length}개 / 아이템 ${p.rawItems.length}개`;
+    });
+
+    dom.uploadStatus.textContent = "업로드 및 아이템 추출이 완료되었습니다.\n" + statusLines.join("\n");
+
+    setActiveTab("mapping");
+  } catch (err) {
+    console.error(err);
+    dom.uploadStatus.textContent = `오류가 발생했습니다.\n${err.message || err}`;
+  }
+});
+
+async function parseExcelFile(file) {
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array" });
+
+  const aggregated = {
+    rawItems: [],
+    dongs: [],
+    floors: [],
+    data: {}
+  };
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+    const mergedRows = applyMerges(rows, ws["!merges"] || []);
+
+    const parsedSheet = parseWorksheetRows(mergedRows);
+    mergeParsedProject(aggregated, parsedSheet);
+  }
+
+  return aggregated;
 }
 
-function validateBeforeCalc() {
-  if (!state.uniqueNames.length) throw new Error("먼저 명칭을 추출해야 합니다.");
-  const missing = [];
-  for (const item of state.uniqueNames) {
-    const config = state.mappingConfig[item.normalizedName];
-    if (!config) { missing.push(`${item.rawName} : 설정 없음`); continue; }
-    if (config.include === "Y") {
-      if (!config.category || config.category === "제외") missing.push(`${item.rawName} : 분류 미설정`);
-      if (!config.itemCode) missing.push(`${item.rawName} : 아이템구분 미설정`);
+function applyMerges(rows, merges) {
+  const grid = rows.map(r => r.slice());
+
+  for (const merge of merges) {
+    const startRow = merge.s.r;
+    const endRow = merge.e.r;
+    const startCol = merge.s.c;
+    const endCol = merge.e.c;
+
+    const topLeftValue = (((grid[startRow] || [])[startCol]) ?? "");
+
+    for (let r = startRow; r <= endRow; r++) {
+      if (!grid[r]) grid[r] = [];
+      for (let c = startCol; c <= endCol; c++) {
+        if (grid[r][c] === undefined || grid[r][c] === "") {
+          grid[r][c] = topLeftValue;
+        }
+      }
     }
   }
-  if (missing.length) throw new Error(`명칭 설정이 완료되지 않았습니다.\n\n${missing.slice(0, 30).join("\n")}${missing.length > 30 ? "\n..." : ""}`);
+
+  return grid;
 }
 
+function parseWorksheetRows(rows) {
+  const result = {
+    rawItems: [],
+    dongs: [],
+    floors: [],
+    data: {}
+  };
 
-/** -----------------------------
- * 엑셀 다운로드 (갑지 양식 100% 동일 복제, 현재 보고 있는 데이터만 즉시 추출)
- * ----------------------------- */
-function exportCompareExcel() {
-  if (!state.lastCompareRows.length) { setStatus("내보낼 비교표가 없습니다."); return; }
+  if (!rows || rows.length < 5) return result;
 
-  const ws = {}; const merges = []; const rowsFormat = []; 
-  const fontName = "맑은 고딕";
-  const borderThin = { style: "thin", color: { rgb: "000000" } };
-  const borderAll = { top: borderThin, bottom: borderThin, left: borderThin, right: borderThin };
+  // 엑셀 기준 3행, 4행
+  const row3 = rows[2] || [];
+  const row4 = rows[3] || [];
 
-  const titleStyle = { font: { name: fontName, bold: true, sz: 16, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" } };
-  const headerStyle = { fill: { fgColor: { rgb: "F2F2F2" } }, font: { name: fontName, bold: true, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" }, border: borderAll };
-  const sectionStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { name: fontName, bold: true, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" }, border: borderAll };
-  const centerStyle = { font: { name: fontName, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" }, border: borderAll };
-  const numberStyle = { font: { name: fontName, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "right", vertical: "center" }, border: borderAll, numFmt: "#,##0" };
-  const ratioStyle = { font: { name: fontName, sz: 10, color: { rgb: "000000" } }, alignment: { horizontal: "center", vertical: "center" }, border: borderAll, numFmt: "0%" };
+  let currentDong = "";
+  let currentFloor = "";
+  let sameFloorCount = 0;
+  let previousFloor = null;
 
-  ws[XLSX.utils.encode_cell({ c: 0, r: 0 })] = { v: "ㅇㅇ 프로젝트 비교분석자료", t: "s", s: titleStyle };
-  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }); rowsFormat[0] = { hpt: 40 }; 
+  for (let r = 4; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const rowText = row.map(v => String(v ?? "").trim()).join(" | ");
 
-  const headers = ["코드", "품명", "규격", "현재 프로젝트", "'A' 프로젝트", "'B' 프로젝트", "'C' 프로젝트", "평균치(A~C프로젝트)", "비율", "비고"];
-  for (let c = 0; c < headers.length; c++) ws[XLSX.utils.encode_cell({ c: c, r: 1 })] = { v: headers[c], t: "s", s: headerStyle };
-  rowsFormat[1] = { hpt: 25 };
-
-  let r = 2; 
-  state.lastCompareRows.forEach((row) => {
-    if (row.type === "section") {
-      // 층 간 띄어쓰기 공백행
-      for (let c = 0; c < 10; c++) ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: "", t: "s" };
-      rowsFormat[r] = { hpt: 12 }; r++;
-
-      // 타이틀행 (B열에 이름, 연두색 배경)
-      for (let c = 0; c < 10; c++) {
-        let val = c === 1 ? row.section : "";
-        ws[XLSX.utils.encode_cell({ c: c, r: r })] = { v: val, t: "s", s: sectionStyle };
+    // 동 인식: [101동] 형태
+    const dongMatch = rowText.match(/\[([^\]]+)\]/);
+    if (dongMatch) {
+      currentDong = dongMatch[1].trim();
+      if (currentDong) {
+        pushUnique(result.dongs, currentDong);
+        if (!result.data[currentDong]) result.data[currentDong] = {};
       }
-      rowsFormat[r] = { hpt: 22 }; r++;
-    } else {
-      const ratioVal = Number.isFinite(row.ratio) ? Number(row.ratio) : 0;
-      const rowData = [
-        { v: row.itemCode, t: "s", s: centerStyle },
-        { v: row.item, t: "s", s: centerStyle },
-        { v: row.spec, t: "s", s: centerStyle },
-        { v: Math.round(row.current), t: "n", s: numberStyle },
-        { v: Math.round(row.A), t: "n", s: numberStyle },
-        { v: Math.round(row.B), t: "n", s: numberStyle },
-        { v: Math.round(row.C), t: "n", s: numberStyle },
-        { v: Math.round(row.avg), t: "n", s: numberStyle },
-        { v: ratioVal, t: "n", s: ratioStyle }, 
-        { v: row.note || "", t: "s", s: centerStyle },
-      ];
-      for (let c = 0; c < rowData.length; c++) ws[XLSX.utils.encode_cell({ c: c, r: r })] = rowData[c];
-      rowsFormat[r] = { hpt: 20 }; r++;
+      currentFloor = "";
+      sameFloorCount = 0;
+      previousFloor = null;
+      continue;
     }
+
+    if (!currentDong) continue;
+
+    const floorCandidate = normalizeFloorCell(row[0]);
+    if (floorCandidate !== "") {
+      currentFloor = floorCandidate;
+      pushUnique(result.floors, currentFloor);
+
+      if (previousFloor === currentFloor) {
+        sameFloorCount += 1;
+      } else {
+        sameFloorCount = 1;
+        previousFloor = currentFloor;
+      }
+    } else if (!currentFloor) {
+      continue;
+    } else {
+      // A열이 비었는데 병합 해제 상황일 수 있어 이전 층 유지
+      if (previousFloor === currentFloor) {
+        sameFloorCount += 1;
+      } else {
+        sameFloorCount = 1;
+        previousFloor = currentFloor;
+      }
+    }
+
+    // floor 당 2행 구조
+    // 1행차 = 3행 아이템, 2행차 = 4행 아이템
+    const itemRowSource = sameFloorCount % 2 === 1 ? row3 : row4;
+
+    for (let c = 1; c < row.length; c++) {
+      const rawLabel = normalizeItemName(itemRowSource[c]);
+      if (!rawLabel) continue;
+
+      const val = toNumber(row[c]);
+      if (val === null) continue;
+
+      pushUnique(result.rawItems, rawLabel);
+
+      if (!result.data[currentDong][rawLabel]) result.data[currentDong][rawLabel] = {};
+      const oldVal = Number(result.data[currentDong][rawLabel][currentFloor] || 0);
+      result.data[currentDong][rawLabel][currentFloor] = oldVal + val;
+    }
+  }
+
+  return result;
+}
+
+function mergeParsedProject(target, parsed) {
+  if (!parsed) return;
+
+  parsed.rawItems?.forEach(item => pushUnique(target.rawItems, item));
+  parsed.dongs?.forEach(d => pushUnique(target.dongs, d));
+  parsed.floors?.forEach(f => pushUnique(target.floors, f));
+
+  target.data = target.data || {};
+
+  for (const dong of Object.keys(parsed.data || {})) {
+    if (!target.data[dong]) target.data[dong] = {};
+
+    for (const rawItem of Object.keys(parsed.data[dong] || {})) {
+      if (!target.data[dong][rawItem]) target.data[dong][rawItem] = {};
+
+      for (const floor of Object.keys(parsed.data[dong][rawItem] || {})) {
+        const oldVal = Number(target.data[dong][rawItem][floor] || 0);
+        const addVal = Number(parsed.data[dong][rawItem][floor] || 0);
+        target.data[dong][rawItem][floor] = oldVal + addVal;
+      }
+    }
+  }
+}
+
+/* =========================
+   아이템 통일 설정
+========================= */
+function renderMappingProjectLists() {
+  dom.mappingProjects.innerHTML = PROJECTS.map(({ key, name }) => {
+    const items = state.projects[key].rawItems || [];
+    const body = items.length
+      ? items.map(item => `<div class="item-badge">${escapeHtml(item)}</div>`).join("")
+      : `<div class="item-badge">아이템 없음</div>`;
+
+    return `
+      <div class="project-item-card">
+        <div class="project-item-card__head">${escapeHtml(name)}</div>
+        <div class="project-item-card__body">${body}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderMappingTable() {
+  const rows = [];
+
+  PROJECTS.forEach(({ key, name }) => {
+    const rawItems = state.projects[key].rawItems || [];
+    rawItems.forEach(rawItem => {
+      const rawKey = makeRawKey(key, rawItem);
+      const suggested = suggestCanonicalName(rawItem);
+      const mapped = state.mappings[rawKey] ?? suggested;
+
+      rows.push({
+        projectKey: key,
+        projectName: name,
+        rawItem,
+        rawKey,
+        suggested,
+        mapped
+      });
+    });
   });
 
-  ws['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: r - 1 } });
-  ws['!merges'] = merges; ws['!rows'] = rowsFormat; 
-  ws['!cols'] = [ { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 15 } ];
+  if (!rows.length) {
+    dom.mappingTbody.innerHTML = `<tr><td colspan="4" class="empty">업로드 후 아이템을 추출하면 여기에 표시됩니다.</td></tr>`;
+    return;
+  }
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "비교표");
-  XLSX.writeFile(wb, "비교표_결과.xlsx");
+  const q = dom.mappingSearch.value.trim().toLowerCase();
+
+  const filtered = rows.filter(row =>
+    !q ||
+    row.projectName.toLowerCase().includes(q) ||
+    row.rawItem.toLowerCase().includes(q) ||
+    row.suggested.toLowerCase().includes(q) ||
+    String(row.mapped).toLowerCase().includes(q)
+  );
+
+  dom.mappingTbody.innerHTML = filtered.length
+    ? filtered.map(row => `
+      <tr>
+        <td>${escapeHtml(row.projectName)}</td>
+        <td>${escapeHtml(row.rawItem)}</td>
+        <td>${escapeHtml(row.suggested)}</td>
+        <td>
+          <input
+            class="mapping-input"
+            data-rawkey="${escapeHtml(row.rawKey)}"
+            list="canonical-options"
+            value="${escapeHtmlAttr(row.mapped)}"
+            placeholder="통일할 아이템명 입력"
+          />
+        </td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4" class="empty">검색 결과가 없습니다.</td></tr>`;
+
+  bindMappingInputs();
 }
 
-function resetAll() {
-  for (const pk of PROJECT_KEYS) fileInputs[pk].value = "";
-  updateFileListText(); clearDataState(); controlsBar.style.display = "none";
-  btnOpenMapping.disabled = true; btnCalc.disabled = true; btnExportCsv.disabled = true;
-  compareBody.innerHTML = `<tr><td colspan="11" class="empty-row">비교표가 아직 생성되지 않았습니다.</td></tr>`;
-  mappingBody.innerHTML = ""; setStatus("대기 중"); setLog("로그가 여기에 표시됩니다."); closeModal();
+function bindMappingInputs() {
+  dom.mappingTbody.querySelectorAll(".mapping-input").forEach(input => {
+    input.addEventListener("input", (e) => {
+      const rawKey = e.target.dataset.rawkey;
+      state.mappings[rawKey] = e.target.value.trim();
+    });
+  });
 }
 
-for (const pk of PROJECT_KEYS) fileInputs[pk].addEventListener("change", updateFileListText);
+dom.mappingSearch.addEventListener("input", renderMappingTable);
 
-btnExportCsv.textContent = "엑셀 내보내기";
-btnExtract.addEventListener("click", async () => { try { setStatus("명칭 추출 중..."); setLog("파일을 분석하고 있습니다..."); await extractNamesFromFiles(); renderMappingTable(); openModal(); } catch (error) { console.error(error); setStatus("오류 발생"); setLog(error?.message || String(error)); } });
-btnOpenMapping.addEventListener("click", () => { renderMappingTable(); openModal(); });
-btnCloseMapping.addEventListener("click", closeModal); mappingBackdrop.addEventListener("click", closeModal);
-btnApplySuggestions.addEventListener("click", () => { applyAutoSuggestionsToCurrentMapping(); });
-btnSaveMapping.addEventListener("click", () => { saveMappingFromUI(); closeModal(); setStatus("명칭 설정 저장 완료"); });
-btnCalc.addEventListener("click", () => { try { if (mappingModal.classList.contains("is-open")) saveMappingFromUI(); validateBeforeCalc(); triggerRecalc(); btnExportCsv.disabled = false; setStatus("비교표 생성 완료"); } catch (error) { console.error(error); setStatus("오류 발생"); setLog(error?.message || String(error)); } });
-btnExportCsv.addEventListener("click", exportCompareExcel);
-btnReset.addEventListener("click", resetAll);
+dom.btnAutofill.addEventListener("click", () => {
+  PROJECTS.forEach(({ key }) => {
+    (state.projects[key].rawItems || []).forEach(rawItem => {
+      const rawKey = makeRawKey(key, rawItem);
+      if (!state.mappings[rawKey]) {
+        state.mappings[rawKey] = suggestCanonicalName(rawItem);
+      }
+    });
+  });
 
-document.addEventListener("click", (e) => { if (!typeaheadRoot.hidden) { const clickedInsideTypeahead = typeaheadRoot.contains(e.target); const clickedInput = e.target.closest(".itemcode-input"); if (!clickedInsideTypeahead && !clickedInput) hideTypeahead(); } });
-window.addEventListener("resize", () => { if (!typeaheadRoot.hidden && state.typeahead.targetInput) positionTypeahead(state.typeahead.targetInput); });
-window.addEventListener("scroll", () => { if (!typeaheadRoot.hidden && state.typeahead.targetInput) positionTypeahead(state.typeahead.targetInput); }, true);
+  renderMappingTable();
+  dom.mappingStatus.textContent = "자동 제안명으로 통일명을 채웠습니다. 필요하면 수정 후 적용해 주세요.";
+});
 
-updateFileListText(); setStatus("대기 중"); setLog("로그가 여기에 표시됩니다.");
+dom.btnApplyMapping.addEventListener("click", () => {
+  if (!state.parsedReady) {
+    dom.mappingStatus.textContent = "먼저 EXCEL 파일을 읽어 주세요.";
+    return;
+  }
+
+  // 빈값 보정
+  PROJECTS.forEach(({ key }) => {
+    (state.projects[key].rawItems || []).forEach(rawItem => {
+      const rawKey = makeRawKey(key, rawItem);
+      if (!state.mappings[rawKey] || !state.mappings[rawKey].trim()) {
+        state.mappings[rawKey] = suggestCanonicalName(rawItem);
+      }
+    });
+  });
+
+  state.mappedReady = true;
+  populateDongFilter();
+  renderSummaryCards();
+  renderCompareTable();
+
+  dom.mappingStatus.textContent = "아이템 통일명이 적용되었습니다.";
+  setActiveTab("compare");
+});
+
+function populateCanonicalDatalist() {
+  const allNames = [];
+
+  PROJECTS.forEach(({ key }) => {
+    (state.projects[key].rawItems || []).forEach(rawItem => {
+      pushUnique(allNames, suggestCanonicalName(rawItem));
+    });
+  });
+
+  dom.canonicalOptions.innerHTML = uniqueSort(allNames).map(name =>
+    `<option value="${escapeHtmlAttr(name)}"></option>`
+  ).join("");
+}
+
+function makeRawKey(projectKey, rawItem) {
+  return `${projectKey}::${rawItem}`;
+}
+
+function suggestCanonicalName(rawItem) {
+  return String(rawItem || "")
+    .replace(/\s+/g, " ")
+    .replace(/[_\-]+/g, "-")
+    .replace(/\s*\/\s*/g, "/")
+    .trim();
+}
+
+/* =========================
+   비교표
+========================= */
+function populateDongFilter() {
+  const allDongs = uniqueSort(
+    PROJECTS.flatMap(({ key }) => state.projects[key].dongs || []),
+    dongSorter
+  );
+
+  dom.filterDong.innerHTML = allDongs.length
+    ? allDongs.map(d => `<option value="${escapeHtmlAttr(d)}">${escapeHtml(d)}</option>`).join("")
+    : `<option value="">동 없음</option>`;
+}
+
+dom.btnRenderCompare.addEventListener("click", renderCompareTable);
+dom.filterDong.addEventListener("change", () => {
+  renderSummaryCards();
+  renderCompareTable();
+});
+dom.filterItem.addEventListener("input", renderCompareTable);
+dom.filterMode.addEventListener("change", renderCompareTable);
+
+function renderSummaryCards() {
+  if (!state.mappedReady) {
+    dom.summaryCards.innerHTML = "";
+    return;
+  }
+
+  const dong = dom.filterDong.value;
+  if (!dong) {
+    dom.summaryCards.innerHTML = "";
+    return;
+  }
+
+  const viewData = buildUnifiedDataByDong(dong);
+  const unifiedItems = Object.keys(viewData.items);
+  const floors = viewData.floors;
+
+  let ratioCount = 0;
+  let ratioHigh = 0;
+  let ratioLow = 0;
+
+  unifiedItems.forEach(item => {
+    floors.forEach(floor => {
+      const row = viewData.items[item][floor];
+      if (row && row.ratio !== null) {
+        ratioCount++;
+        if (row.ratio >= 110) ratioHigh++;
+        if (row.ratio <= 90) ratioLow++;
+      }
+    });
+  });
+
+  dom.summaryCards.innerHTML = `
+    <div class="summary-card">
+      <div class="summary-card__label">선택 동</div>
+      <div class="summary-card__value">${escapeHtml(dong)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">비교 아이템 수</div>
+      <div class="summary-card__value">${unifiedItems.length}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">비율 계산 셀 수</div>
+      <div class="summary-card__value">${ratioCount}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card__label">과다 / 과소 셀 수</div>
+      <div class="summary-card__value">${ratioHigh} / ${ratioLow}</div>
+    </div>
+  `;
+}
+
+function renderCompareTable() {
+  if (!state.mappedReady) {
+    dom.compareThead.innerHTML = "";
+    dom.compareTbody.innerHTML = `<tr><td class="empty">아이템 통일명을 먼저 적용해 주세요.</td></tr>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
+
+  const dong = dom.filterDong.value;
+  if (!dong) {
+    dom.compareThead.innerHTML = "";
+    dom.compareTbody.innerHTML = `<tr><td class="empty">동을 선택해 주세요.</td></tr>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
+
+  const keyword = dom.filterItem.value.trim().toLowerCase();
+  const ratioMode = dom.filterMode.value;
+
+  const viewData = buildUnifiedDataByDong(dong);
+  let items = Object.keys(viewData.items);
+  const floors = viewData.floors;
+
+  if (keyword) {
+    items = items.filter(item => item.toLowerCase().includes(keyword));
+  }
+
+  items = uniqueSort(items);
+
+  if (!items.length) {
+    dom.compareThead.innerHTML = "";
+    dom.compareTbody.innerHTML = `<tr><td class="empty">조건에 맞는 아이템이 없습니다.</td></tr>`;
+    dom.compareStatus.textContent = "";
+    return;
+  }
+
+  renderCompareHeader(floors);
+  renderCompareBody(items, floors, viewData, ratioMode);
+
+  dom.compareStatus.textContent =
+    `동 ${dong} 기준 / 아이템 ${items.length}개 / 층 ${floors.length}개`;
+}
+
+function buildUnifiedDataByDong(dong) {
+  const unified = {
+    floors: [],
+    items: {}
+  };
+
+  const allFloors = uniqueSort(
+    PROJECTS.flatMap(({ key }) => {
+      const rawDongData = state.projects[key].data[dong] || {};
+      return Object.values(rawDongData).flatMap(itemObj => Object.keys(itemObj || {}));
+    }),
+    floorSorter
+  );
+
+  unified.floors = allFloors;
+
+  PROJECTS.forEach(({ key }) => {
+    const dongData = state.projects[key].data[dong] || {};
+
+    Object.keys(dongData).forEach(rawItem => {
+      const rawKey = makeRawKey(key, rawItem);
+      const canonical = (state.mappings[rawKey] || suggestCanonicalName(rawItem)).trim();
+      if (!canonical) return;
+
+      if (!unified.items[canonical]) unified.items[canonical] = {};
+      allFloors.forEach(floor => {
+        if (!unified.items[canonical][floor]) {
+          unified.items[canonical][floor] = {
+            current: null,
+            a: null,
+            b: null,
+            c: null,
+            avg: null,
+            ratio: null
+          };
+        }
+
+        const val = dongData[rawItem]?.[floor];
+        if (typeof val === "number" && !Number.isNaN(val)) {
+          unified.items[canonical][floor][key] =
+            Number(unified.items[canonical][floor][key] || 0) + val;
+        }
+      });
+    });
+  });
+
+  Object.keys(unified.items).forEach(item => {
+    allFloors.forEach(floor => {
+      const cell = unified.items[item][floor];
+      const simVals = [cell.a, cell.b, cell.c].filter(v => typeof v === "number");
+      cell.avg = simVals.length ? average(simVals) : null;
+      cell.ratio = (typeof cell.current === "number" && typeof cell.avg === "number" && cell.avg !== 0)
+        ? (cell.current / cell.avg) * 100
+        : null;
+    });
+  });
+
+  return unified;
+}
+
+function renderCompareHeader(floors) {
+  const groups = [
+    { key: "current", label: "현재 프로젝트", cls: "compare-group-current" },
+    { key: "a", label: "유사 A", cls: "compare-group-a" },
+    { key: "b", label: "유사 B", cls: "compare-group-b" },
+    { key: "c", label: "유사 C", cls: "compare-group-c" },
+    { key: "avg", label: "유사 3개 평균", cls: "compare-group-avg" },
+    { key: "ratio", label: "현재 / 평균 비율(%)", cls: "compare-group-ratio" }
+  ];
+
+  const top = [];
+  top.push(`<th class="sticky-col" rowspan="2" style="min-width:110px">아이템</th>`);
+  top.push(`<th class="sticky-col-2" rowspan="2" style="min-width:140px">구분</th>`);
+
+  groups.forEach(g => {
+    top.push(`<th class="${g.cls}" colspan="${floors.length}">${g.label}</th>`);
+  });
+
+  const bottom = [];
+  groups.forEach(g => {
+    floors.forEach(floor => {
+      bottom.push(`<th class="compare-floor-head ${g.cls}">${escapeHtml(floor)}</th>`);
+    });
+  });
+
+  dom.compareThead.innerHTML = `
+    <tr>${top.join("")}</tr>
+    <tr>${bottom.join("")}</tr>
+  `;
+}
+
+function renderCompareBody(items, floors, viewData, ratioMode) {
+  const rows = [];
+
+  items.forEach(item => {
+    const tr = [];
+    tr.push(`<td class="sticky-col row-item">${escapeHtml(item)}</td>`);
+    tr.push(`<td class="sticky-col-2 row-item-sub">수량 / 평균 / 비율</td>`);
+
+    // current
+    floors.forEach(floor => {
+      tr.push(`<td>${formatValue(viewData.items[item][floor].current)}</td>`);
+    });
+
+    // a
+    floors.forEach(floor => {
+      tr.push(`<td>${formatValue(viewData.items[item][floor].a)}</td>`);
+    });
+
+    // b
+    floors.forEach(floor => {
+      tr.push(`<td>${formatValue(viewData.items[item][floor].b)}</td>`);
+    });
+
+    // c
+    floors.forEach(floor => {
+      tr.push(`<td>${formatValue(viewData.items[item][floor].c)}</td>`);
+    });
+
+    // avg
+    floors.forEach(floor => {
+      tr.push(`<td>${formatValue(viewData.items[item][floor].avg)}</td>`);
+    });
+
+    // ratio
+    floors.forEach(floor => {
+      const ratio = viewData.items[item][floor].ratio;
+      const cls = ratioClass(ratio, ratioMode);
+      tr.push(`<td class="${cls}">${formatRatio(ratio)}</td>`);
+    });
+
+    rows.push(`<tr>${tr.join("")}</tr>`);
+  });
+
+  dom.compareTbody.innerHTML = rows.join("");
+}
+
+function ratioClass(ratio, mode) {
+  if (ratio === null) return "value-empty";
+  if (mode === "ratio") {
+    if (ratio >= 110) return "ratio-high";
+    if (ratio <= 90) return "ratio-low";
+    return "ratio-mid";
+  }
+  if (ratio >= 110) return "ratio-high";
+  if (ratio <= 90) return "ratio-low";
+  return "";
+}
+
+/* =========================
+   유틸
+========================= */
+function normalizeItemName(v) {
+  return String(v ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeFloorCell(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  // 1, 2, 3 ... 형태를 1F, 2F로 표준화
+  if (/^\d+$/.test(s)) return `${s}F`;
+  return s;
+}
+
+function toNumber(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
+  const s = String(v).replace(/,/g, "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function average(arr) {
+  if (!arr.length) return null;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function pushUnique(arr, value) {
+  if (!arr.includes(value)) arr.push(value);
+}
+
+function uniqueSort(arr, sorter) {
+  const unique = [...new Set(arr)];
+  return sorter ? unique.sort(sorter) : unique.sort();
+}
+
+function floorSorter(a, b) {
+  const na = parseFloorNumber(a);
+  const nb = parseFloorNumber(b);
+  if (na !== null && nb !== null) return na - nb;
+  return String(a).localeCompare(String(b), "ko");
+}
+
+function dongSorter(a, b) {
+  const na = parseLeadingNumber(a);
+  const nb = parseLeadingNumber(b);
+  if (na !== null && nb !== null) return na - nb;
+  return String(a).localeCompare(String(b), "ko");
+}
+
+function parseFloorNumber(v) {
+  const m = String(v).match(/-?\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+function parseLeadingNumber(v) {
+  const m = String(v).match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+function formatValue(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) {
+    return `<span class="value-empty">-</span>`;
+  }
+  return Number(v).toLocaleString("ko-KR", { maximumFractionDigits: 3 });
+}
+
+function formatRatio(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) {
+    return `<span class="value-empty">-</span>`;
+  }
+  return `${v.toFixed(1)}%`;
+}
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function escapeHtmlAttr(str) {
+  return escapeHtml(str).replaceAll("`", "&#96;");
+}
