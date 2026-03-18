@@ -29,18 +29,15 @@ const dom = {
 /* 중분류 예측 알고리즘 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
-  // 철근 패턴: H10, D19, 철근 등
   if (/(H|D|HD|SD)\d+/.test(s) || s.includes("철근") || s.startsWith("H") || s.startsWith("D")) return "철근";
-  // 콘크리트 패턴: MPA, 25-240-15 등
   if (s.includes("MPA") || /\d+-\d+-\d+/.test(s) || (/^\d+$/.test(s) && parseInt(s) >= 150)) return "콘크리트";
-  // 거푸집 패턴: 폼, 회 등
   if (["폼","FORM","회","유로","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
   return "잡/기타";
 }
 
-/* 데이터 파싱 시작 */
+/* 데이터 분석 및 파싱 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다 (2행 세트 분석)...";
+  dom.uploadStatus.textContent = "데이터를 분석 중입니다. 유효하지 않은 명칭을 필터링합니다...";
   try {
     for (const p of PROJECTS) {
       const input = $(`file-${p.key}`);
@@ -61,7 +58,7 @@ dom.btnParse.onclick = async () => {
     buildItemGroups();
     renderDongUI();
     renderItemUI();
-    dom.uploadStatus.textContent = "분석 완료! 2번 탭에서 설정을 확인하세요.";
+    dom.uploadStatus.textContent = "분석 완료!";
     dom.tabs[1].click();
   } catch(e) { 
     dom.uploadStatus.textContent = "오류 발생: " + e.message; 
@@ -69,50 +66,49 @@ dom.btnParse.onclick = async () => {
   }
 };
 
-/* 엑셀 구조 정밀 파싱 (2행 1세트 로직 핵심) */
+/* 엑셀 구조 정밀 파싱 */
 function parseSheetData(rows, pState) {
   let currentDong = "";
   let lastFloor = "";
-  const row3 = rows[2] || []; // 3행 헤더 (콘크리트 등)
-  const row4 = rows[3] || []; // 4행 헤더 (거푸집, 철근 등)
+  const row3 = rows[2] || [];
+  const row4 = rows[3] || [];
 
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
 
     const rowText = row.join("|");
-    // 동 명칭 감지 (동 명 : [101동] 패턴)
+    
+    // [수정] "동 명 : [101동]" 형태만 추출하고 시스템 변수([CURRENT] 등)는 무시
     const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
     if (dongMatch) {
-      currentDong = dongMatch[1].trim();
-      if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
-      pState.data[currentDong] = pState.data[currentDong] || {};
-      lastFloor = "";
+      const extractedName = dongMatch[1].trim();
+      // 대문자만 있거나 비어있는 값은 제외 (예: CURRENT, TEMP 등 필터링)
+      if (extractedName && !/^[A-Z_]+$/.test(extractedName)) {
+        currentDong = extractedName;
+        if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
+        pState.data[currentDong] = pState.data[currentDong] || {};
+        lastFloor = "";
+      }
       continue;
     }
     if (!currentDong) continue;
 
-    // 층 정보 확인 (A열)
     const fRaw = String(row[0]).trim();
-    if (fRaw.includes("계") || fRaw.includes("공사명") || fRaw === "층") continue;
-
-    // 층 이름이 있는 행 = 첫 번째 행(row3 매칭), 층 이름이 없는 행 = 두 번째 행(row4 매칭)
-    if (fRaw !== "") {
-      lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
-      if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
+    if (fRaw.includes("계") || fRaw.includes("공사명") || fRaw === "층" || fRaw === "") {
+        // 층 이름이 없어도 이전 층의 연속 행(row4 매칭행)으로 판단
+    } else {
+        lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
+        if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
     }
     
     if (!lastFloor) continue;
 
-    // 수량 데이터 수집 (B열부터)
     for (let c = 1; c < row.length; c++) {
       const val = parseFloat(String(row[c]).replace(/,/g, ""));
       if (isNaN(val) || val === 0) continue;
 
-      // 층 이름이 있는 행이면 row3(콘크리트) 헤더, 없으면 row4(거푸집/철근) 헤더 사용
-      let itemName = (fRaw !== "") ? String(row3[c] || "").trim() : String(row4[c] || "").trim();
-      
-      // 만약 매칭된 헤더가 없으면 보조 헤더 확인
+      let itemName = (fRaw !== "" && fRaw !== "층") ? String(row3[c] || "").trim() : String(row4[c] || "").trim();
       if (!itemName) itemName = String(row3[c] || row4[c] || "").trim();
       if (!itemName) continue;
 
@@ -124,21 +120,36 @@ function parseSheetData(rows, pState) {
   }
 }
 
+/* 동 명칭 관리 (필터링 강화) */
 function initDongMapping() {
-  PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(d => {
-    const key = `${p.key}::${d}`;
-    state.dongMap[key] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
-  }));
+  state.dongMap = {}; // 초기화
+  PROJECTS.forEach(p => {
+    state.projects[p.key].dongs.forEach(d => {
+      // 프로젝트 내부 키값이나 비정상적인 동 이름은 맵에 넣지 않음
+      if (d === "current" || d === "a" || d === "b" || d === "c") return;
+      
+      const key = `${p.key}::${d}`;
+      state.dongMap[key] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
+    });
+  });
 }
 
 function renderDongUI() {
   const q = $("dong-search").value.toLowerCase();
-  dom.dongList.innerHTML = Object.keys(state.dongMap).filter(k=>k.toLowerCase().includes(q)).sort().map(key => `
+  const filteredKeys = Object.keys(state.dongMap).filter(k => k.toLowerCase().includes(q));
+  
+  if (filteredKeys.length === 0) {
+    dom.dongList.innerHTML = "<div style='padding:20px; color:#999; text-align:center;'>추출된 동 정보가 없습니다.</div>";
+    return;
+  }
+
+  dom.dongList.innerHTML = filteredKeys.sort().map(key => `
     <div class="dong-row">
       <div class="col-p-name"><strong>[${key.split("::")[0].toUpperCase()}]</strong> ${key.split("::")[1]}</div>
       <div style="width:40px; text-align:center; color:#ccc;">→</div>
       <div style="flex:1"><input class="dong-std-input" data-key="${key}" value="${state.dongMap[key]}" /></div>
     </div>`).join("");
+    
   document.querySelectorAll(".dong-std-input").forEach(el => {
     el.oninput = (e) => state.dongMap[e.target.dataset.key] = e.target.value.trim();
     applyNav(el);
@@ -191,8 +202,12 @@ function applyNav(el) {
 }
 
 $("btn-apply-all").onclick = () => {
+  if (Object.keys(state.dongMap).length === 0) {
+    alert("분석된 동 정보가 없습니다. 엑셀 파일을 다시 확인해주세요.");
+    return;
+  }
   state.mappedReady = true;
-  const stdDongs = [...new Set(Object.values(state.dongMap))].sort();
+  const stdDongs = [...new Set(Object.values(state.dongMap))].filter(Boolean).sort();
   dom.filterDong.innerHTML = stdDongs.map(d => `<option value="${d}">${d}</option>`).join("");
   renderCompare();
   dom.tabs[2].click();
@@ -205,7 +220,9 @@ $("mapping-search").oninput = renderItemUI;
 function renderCompare() {
   if (!state.mappedReady) return;
   const targetStd = dom.filterDong.value;
-  const catFilter = dom.filterCategory.value;
+  const catFilter = $("filter-category").value;
+  if (!targetStd) return;
+
   const unified = { floors: [], items: {} };
 
   PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(orig => {
@@ -214,6 +231,7 @@ function renderCompare() {
     for (const raw in dData) {
       const group = state.mappingGroups.find(x => x.items[p.key].includes(raw));
       if (!group || (catFilter !== 'all' && group.category !== catFilter)) continue;
+      
       unified.items[group.canonical] = unified.items[group.canonical] || { cat: group.category };
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
@@ -252,14 +270,21 @@ function renderCompare() {
 
 function renderRatioBoard(unified) {
   const floors = unified.floors;
-  const data = { current:{}, a:{}, b:{}, c:{} };
+  const pKeys = ['current', 'a', 'b', 'c'];
+  const data = pKeys.reduce((acc, k) => { acc[k] = {}; return acc; }, {});
+
   floors.forEach(f => {
-    ['current','a','b','c'].forEach(p => {
-      const conc = Object.keys(unified.items).filter(n=>unified.items[n].cat==='콘크리트').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
-      const rebar = Object.keys(unified.items).filter(n=>unified.items[n].cat==='철근').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
+    const getSum = (pKey, cat) => Object.keys(unified.items)
+      .filter(name => unified.items[name].cat === cat)
+      .reduce((sum, name) => sum + (unified.items[name][f]?.[pKey] || 0), 0);
+
+    pKeys.forEach(p => {
+      const conc = getSum(p, '콘크리트');
+      const rebar = getSum(p, '철근');
       data[p][f] = conc > 0 ? (rebar / conc).toFixed(4) : "0.0000";
     });
   });
+
   dom.ratioBoard.innerHTML = `
     <table class="compare-matrix">
       <thead><tr><th>구분 (Ton/m³)</th>${floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
