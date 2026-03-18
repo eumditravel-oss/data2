@@ -1,21 +1,13 @@
 :root {
-  --bg: #f5f7fb;
-  --panel: #ffffff;
-  --line: #d9e1ef;
-  --text: #10233f;
-  --muted: #6a7890;
-  --primary: #1f5eff;
-  --primary-weak: #eaf1ff;
-  --current-bg: #f0f7ff;
-  --shadow: 0 10px 24px rgba(16, 35, 63, .06);
-  --radius: 18px;
+  --bg: #f5f7fb; --panel: #ffffff; --line: #d9e1ef; --text: #10233f;
+  --muted: #6a7890; --primary: #1f5eff; --primary-weak: #eaf1ff;
+  --current-bg: #f0f7ff; --shadow: 0 10px 24px rgba(16, 35, 63, .06); --radius: 18px;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", sans-serif; padding: 24px; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: sans-serif; padding: 24px; }
 .app-shell { max-width: 1800px; margin: 0 auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.topbar h1 { margin: 0; font-size: 26px; font-weight: 800; }
 .tabs, .sub-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
 .tab, .sub-tab { padding: 12px 24px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 700; }
 .tab.is-active, .sub-tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
@@ -31,6 +23,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
 .list-header { display: flex; align-items: center; padding: 12px 16px; background: #f8fbff; border: 1px solid var(--line); font-weight: 800; font-size: 13px; }
 .item-row, .dong-row { display: flex; align-items: center; padding: 6px 16px; background: #fff; border: 1px solid var(--line); border-top: none; gap: 12px; }
+.item-row:hover { background: #f4f8ff; }
+
 .col-check { width: 40px; text-align: center; }
 .col-orig { flex: 1; display: flex; gap: 4px; overflow: hidden; }
 .col-edit { width: 320px; }
@@ -42,7 +36,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe
 
 .compare-card { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 20px; background: #fff; overflow: hidden; }
 .compare-card__head { padding: 12px 16px; background: #fbfcff; border-bottom: 1px solid var(--line); }
-.compare-card__body { max-height: 400px; overflow: auto; }
+.compare-card__body { max-height: 450px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 
 .compare-matrix { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
 .compare-matrix th, .compare-matrix td { padding: 10px; border: 0.5px solid var(--line); text-align: center; font-size: 13px; white-space: nowrap; }
