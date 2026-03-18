@@ -3,178 +3,131 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QS 프로젝트 비교표</title>
+  <title>비교표 웹앱 (QS Benchmark)</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
-    <header class="topbar">
-      <div class="topbar__title">
-        <h1>QS 프로젝트 비교표</h1>
-        <p>현재 프로젝트와 유사 프로젝트 3개의 층별총집계표를 업로드하여 아이템 통일 후 동별 비교표를 생성합니다.</p>
-      </div>
-      <div class="topbar__actions">
-        <button id="btn-reset" class="btn btn-ghost">초기화</button>
+    <header class="hero">
+      <div class="hero__inner">
+        <div>
+          <h1>비교표 웹앱 (QS Benchmark 모드)</h1>
+          <p class="hero__desc">
+            층별로 병합된 셀을 자동으로 인식합니다. (1행 ➜ 3행 타이틀, 2행 ➜ 4행 타이틀 매칭)<br>
+            각 동의 중분류(콘크리트, 거푸집, 철근, 잡)별 층당 수량과 층평균을 한눈에 벤치마킹할 수 있습니다.
+          </p>
+        </div>
+        <div class="hero__meta">
+          <span class="badge">동·아이템 매트릭스</span>
+          <span class="badge">층별 2행 묶음 파싱</span>
+          <span class="badge">템플릿 엑셀 100% 복제출력</span>
+        </div>
       </div>
     </header>
 
-    <main class="page">
-      <section class="tabs">
-        <button class="tab is-active" data-tab="upload">1. 데이터 업로드</button>
-        <button class="tab" data-tab="mapping">2. 아이템 통일 설정</button>
-        <button class="tab" data-tab="compare">3. 동별 비교표</button>
-      </section>
-
-      <!-- 업로드 -->
-      <section id="tab-upload" class="tab-panel is-active">
-        <div class="panel">
-          <div class="panel__head">
-            <div>
-              <h2>1. 분석표 데이터 업로드</h2>
-              <p>프로젝트별 층별총집계표 EXCEL 파일을 업로드합니다.</p>
-            </div>
-          </div>
-
-          <div class="upload-grid">
-            <div class="upload-card">
-              <div class="upload-card__head">
-                <strong>현재 프로젝트</strong>
-                <span>여러 파일 가능</span>
-              </div>
-              <label class="filebox">
-                <input type="file" id="file-current" accept=".xlsx,.xls" multiple />
-                <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-current">선택된 파일 없음</span>
-              </label>
-              <div class="file-list" id="list-current"></div>
-            </div>
-
-            <div class="upload-card">
-              <div class="upload-card__head">
-                <strong>A 프로젝트</strong>
-                <span>여러 파일 가능</span>
-              </div>
-              <label class="filebox">
-                <input type="file" id="file-a" accept=".xlsx,.xls" multiple />
-                <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-a">선택된 파일 없음</span>
-              </label>
-              <div class="file-list" id="list-a"></div>
-            </div>
-
-            <div class="upload-card">
-              <div class="upload-card__head">
-                <strong>B 프로젝트</strong>
-                <span>여러 파일 가능</span>
-              </div>
-              <label class="filebox">
-                <input type="file" id="file-b" accept=".xlsx,.xls" multiple />
-                <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-b">선택된 파일 없음</span>
-              </label>
-              <div class="file-list" id="list-b"></div>
-            </div>
-
-            <div class="upload-card">
-              <div class="upload-card__head">
-                <strong>C 프로젝트</strong>
-                <span>여러 파일 가능</span>
-              </div>
-              <label class="filebox">
-                <input type="file" id="file-c" accept=".xlsx,.xls" multiple />
-                <span class="filebox__btn">파일 선택</span>
-                <span class="filebox__name" id="name-c">선택된 파일 없음</span>
-              </label>
-              <div class="file-list" id="list-c"></div>
-            </div>
-          </div>
-
-          <div class="panel__foot">
-            <button id="btn-parse" class="btn btn-primary">EXCEL 읽기 및 아이템 추출</button>
-          </div>
-
-          <div id="upload-status" class="status-box"></div>
+    <main class="main-grid">
+      <section class="panel upload-panel">
+        <div class="panel__head">
+          <h2>1. 분석표 데이터 업로드</h2>
         </div>
-      </section>
 
-      <!-- 아이템 통일 -->
-      <section id="tab-mapping" class="tab-panel">
-        <div class="panel">
-          <div class="panel__head">
-            <div>
-              <h2>2. 아이템 통일 설정</h2>
-              <p>유사한 아이템끼리 그룹화한 뒤 병합/분리하여 최종 통일 아이템명과 중분류를 설정합니다.</p>
-            </div>
-            <div class="toolbar">
-              <input type="text" id="mapping-search" class="input" placeholder="아이템 그룹 검색" />
-              <button id="btn-autofill" class="btn btn-secondary">자동 채우기</button>
-              <button id="btn-merge-groups" class="btn btn-secondary">선택 그룹 병합</button>
-              <button id="btn-split-selected" class="btn btn-secondary">선택 아이템 분리</button>
-              <button id="btn-apply-mapping" class="btn btn-primary">통일명 적용</button>
-            </div>
+        <div class="upload-list">
+          <div class="upload-card">
+            <div class="upload-card__top"><strong>현재 프로젝트</strong><span>여러 파일 가능</span></div>
+            <input id="file-current" type="file" accept=".xlsx,.xls" multiple />
+            <div class="upload-files" id="file-current-list">선택된 파일 없음</div>
           </div>
-
-          <div class="group-guide">
-            <div class="guide-chip">현재 프로젝트</div>
-            <div class="guide-chip">A 프로젝트</div>
-            <div class="guide-chip">B 프로젝트</div>
-            <div class="guide-chip">C 프로젝트</div>
-            <div class="guide-chip">그룹 선택</div>
-            <div class="guide-chip guide-chip--accent">통일 아이템명</div>
-            <div class="guide-chip guide-chip--accent">중분류</div>
+          <div class="upload-card">
+            <div class="upload-card__top"><strong>A 프로젝트</strong><span>여러 파일 가능</span></div>
+            <input id="file-a" type="file" accept=".xlsx,.xls" multiple />
+            <div class="upload-files" id="file-a-list">선택된 파일 없음</div>
           </div>
-
-          <div id="mapping-group-list" class="mapping-group-list"></div>
-          <datalist id="canonical-options"></datalist>
-
-          <div id="mapping-status" class="status-box"></div>
+          <div class="upload-card">
+            <div class="upload-card__top"><strong>B 프로젝트</strong><span>여러 파일 가능</span></div>
+            <input id="file-b" type="file" accept=".xlsx,.xls" multiple />
+            <div class="upload-files" id="file-b-list">선택된 파일 없음</div>
+          </div>
+          <div class="upload-card">
+            <div class="upload-card__top"><strong>C 프로젝트</strong><span>여러 파일 가능</span></div>
+            <input id="file-c" type="file" accept=".xlsx,.xls" multiple />
+            <div class="upload-files" id="file-c-list">선택된 파일 없음</div>
+          </div>
         </div>
+
+        <div class="panel__head panel__head--sub">
+          <h2>2. 명칭 처리 기준</h2>
+        </div>
+        <div class="actions">
+          <button id="btn-extract" class="btn btn--primary">명칭 추출</button>
+          <button id="btn-open-mapping" class="btn" disabled>명칭 설정 열기</button>
+          <button id="btn-calc" class="btn btn--accent" disabled>비교표 생성</button>
+          <button id="btn-export-csv" class="btn" disabled>엑셀 내보내기</button>
+          <button id="btn-reset" class="btn btn--ghost">초기화</button>
+        </div>
+
+        <div class="status-box" id="status-box">대기 중</div>
+        <div class="log-box" id="log-box">로그가 여기에 표시됩니다.</div>
       </section>
 
-      <!-- 비교표 -->
-      <section id="tab-compare" class="tab-panel">
-        <div class="panel">
-          <div class="panel__head">
-            <div>
-              <h2>3. 동별 비교표</h2>
-              <p>동을 선택하면 아이템별 카드로 현재 프로젝트, 유사 3개 프로젝트, 평균, 비율을 층별 비교합니다.</p>
-            </div>
-            <div class="toolbar toolbar-wrap">
-              <select id="filter-dong" class="input"></select>
-              <select id="filter-category" class="input">
-                <option value="all">중분류 전체</option>
-                <option value="콘크리트">콘크리트</option>
-                <option value="거푸집">거푸집</option>
-                <option value="철근">철근</option>
-                <option value="기타">기타</option>
-              </select>
-              <input type="text" id="filter-item" class="input" placeholder="아이템 검색" />
-              <select id="filter-mode" class="input">
-                <option value="all">전체 보기</option>
-                <option value="ratio">비율 강조</option>
-              </select>
-              <button id="btn-render-compare" class="btn btn-primary">비교표 갱신</button>
-            </div>
-          </div>
+      <section class="panel result-panel">
+        <div class="panel__head">
+          <h2>QS 벤치마크 결과</h2>
+          <p>모든 동의 아이템 수량이 층별로 전개됩니다. 가로로 스크롤하여 확인하세요.</p>
+        </div>
 
-          <div class="summary-cards" id="summary-cards"></div>
-
-          <div class="panel-mini">
-            <div class="panel-mini__head">
-              <h3>층별 콘크리트 총합 / 철근 총합 비율</h3>
-            </div>
-            <div id="floor-ratio-board" class="floor-ratio-board"></div>
-          </div>
-
-          <div id="compare-card-list" class="compare-card-list"></div>
-
-          <div id="compare-status" class="status-box"></div>
+        <div class="table-wrap">
+          <table class="compare-table">
+            <thead id="compare-thead">
+              <tr>
+                <th>동</th>
+                <th>중분류</th>
+                <th>층평균</th>
+                <th>3개프로젝트평균</th>
+                <th>Index(현재/평균)</th>
+              </tr>
+            </thead>
+            <tbody id="compare-body">
+              <tr>
+                <td colspan="5" class="empty-row">비교표가 아직 생성되지 않았습니다.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
   </div>
 
+  <div class="modal" id="mapping-modal" aria-hidden="true">
+    <div class="modal__backdrop" id="mapping-backdrop"></div>
+    <div class="modal__dialog">
+      <div class="modal__head">
+        <div><h3>명칭 처리 기준 설정</h3></div>
+        <button id="btn-close-mapping" class="modal__close" type="button">✕</button>
+      </div>
+      <div class="mapping-toolbar">
+        <button id="btn-apply-suggestions" class="btn btn--small">자동 제안 적용</button>
+        <button id="btn-save-mapping" class="btn btn--small btn--accent">설정 저장</button>
+      </div>
+      <div class="mapping-table-wrap">
+        <table class="mapping-table">
+          <thead>
+            <tr>
+              <th>원본명칭</th>
+              <th>반영여부</th>
+              <th>중분류</th>
+              <th>아이템구분</th>
+              <th>제안</th>
+            </tr>
+          </thead>
+          <tbody id="mapping-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="typeahead-root" class="typeahead-root" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
