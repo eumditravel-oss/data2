@@ -136,3 +136,26 @@ body {
 @media (max-width: 768px) {
   .upload-grid, .mapping-project-grid, .summary-cards { grid-template-columns: 1fr; }
 }
+
+/* 기존 스타일 하단에 추가 또는 수정 */
+.file-list {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-chip {
+  display: inline-flex;
+  padding: 4px 10px;
+  background: var(--primary-weak);
+  color: var(--primary);
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: bold;
+  border: 1px solid var(--line);
+}
+
+.compare-matrix tr.row-current td {
+  background-color: var(--current-bg);
+}
