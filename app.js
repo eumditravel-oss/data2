@@ -6,14 +6,14 @@ const state = {
   rawItems: [],
   dongs: [],
   floors: [],
-  data: {}, // { dong: { item: { floor: val } } }
-  mappings: [], // { id, original, canonical, category }
+  data: {}, 
+  mappings: [], 
   ready: false
 };
 
 const $ = (id) => document.getElementById(id);
 
-/* 지능형 층 정렬 (요청사항 반영) */
+/* 층 정렬 (B5...B1 -> FT -> 1F...PH) */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
@@ -26,7 +26,7 @@ function floorSorter(a, b) {
   return getRank(a) - getRank(b);
 }
 
-/* 카테고리 예측 */
+/* 분류 예측 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
   if (/(H|D|HD|SD)\d+/.test(s) || s.includes("철근")) return "철근";
@@ -51,7 +51,7 @@ $("btn-parse").onclick = async () => {
 
   buildMapping();
   renderMapping();
-  $('tab-mapping').click();
+  switchTab('mapping');
 };
 
 function parseRows(rows) {
@@ -89,7 +89,7 @@ function parseRows(rows) {
       if (!itemName) continue;
 
       if (!state.rawItems.includes(itemName)) state.rawItems.push(itemName);
-      state.data[currentDong][itemName] = state.data[currentDong][itemName] || {};
+      if (!state.data[currentDong][itemName]) state.data[currentDong][itemName] = {};
       state.data[currentDong][itemName][lastFloor] = (state.data[currentDong][itemName][lastFloor] || 0) + val;
     }
   }
@@ -108,11 +108,11 @@ function renderMapping() {
   const list = $("mapping-list");
   list.innerHTML = state.mappings.map(m => `
     <div class="item-row">
-      <div style="width:60px; text-align:center; color:#999;">${m.id + 1}</div>
-      <div style="flex:1; font-weight:bold;">${m.original}</div>
-      <div style="width:200px;"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id}, 'canonical', this.value)" /></div>
-      <div style="width:150px;">
-        <select class="input" onchange="updateMapping(${m.id}, 'category', this.value)">
+      <div style="width:60px; text-align:center; color:#999; font-weight:bold;">${m.id + 1}</div>
+      <div style="flex:1; font-weight:700;">${m.original}</div>
+      <div style="width:250px;"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id}, 'canonical', this.value)" style="width:100%;" /></div>
+      <div style="width:180px;">
+        <select class="input" onchange="updateMapping(${m.id}, 'category', this.value)" style="width:100%;">
           ${CATEGORIES.map(c => `<option value="${c}" ${m.category === c ? 'selected' : ''}>${c}</option>`).join("")}
         </select>
       </div>
@@ -122,13 +122,13 @@ function renderMapping() {
 
 window.updateMapping = (id, field, val) => { state.mappings[id][field] = val; };
 
-/* 결과 생성 및 렌더링 */
+/* 결과 렌더링 */
 $("btn-apply").onclick = () => {
   state.ready = true;
   const filterDong = $("filter-dong");
   filterDong.innerHTML = state.dongs.sort().map(d => `<option value="${d}">${d}</option>`).join("");
   renderView();
-  $('tab-view').click();
+  switchTab('view');
 };
 
 $("filter-dong").onchange = renderView;
@@ -139,23 +139,22 @@ function renderView() {
   const floors = state.floors.sort(floorSorter);
   const dongData = state.data[dong] || {};
 
-  // 1. 헤더 생성
+  // 1. 헤더
   const headRow = $("table-header-row");
   headRow.innerHTML = `<th>아이템 명칭</th><th>분류</th><th>단위</th>` + floors.map(f => `<th>${f}</th>`).join("") + `<th>합계</th>`;
 
-  // 2. 데이터 그룹화
+  // 2. 그룹화
   const grouped = {};
   state.mappings.forEach(m => {
     const qtyByFloor = dongData[m.original] || {};
     if (Object.keys(qtyByFloor).length === 0) return;
-    
     if (!grouped[m.canonical]) grouped[m.canonical] = { category: m.category, floors: {} };
     floors.forEach(f => {
       grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qtyByFloor[f] || 0);
     });
   });
 
-  // 3. 지표 계산 (철근 톤당 루베)
+  // 3. 지표 계산
   const stats = { conc: {}, rebar: {}, ratio: {} };
   floors.forEach(f => {
     stats.conc[f] = Object.keys(grouped).filter(n => grouped[n].category === '콘크리트').reduce((s, n) => s + grouped[n].floors[f], 0);
@@ -163,48 +162,43 @@ function renderView() {
     stats.ratio[f] = stats.conc[f] > 0 ? (stats.rebar[f] / stats.conc[f]).toFixed(4) : "0.0000";
   });
 
-  // 4. 테이블 바디 생성
+  // 4. 바디
   const body = $("table-body");
   let html = "";
-
-  // 아이템 수량행
   Object.keys(grouped).sort().forEach(name => {
     const item = grouped[name];
     const unit = item.category === '철근' ? 'TON' : (item.category === '콘크리트' ? 'M3' : 'M2');
     const total = floors.reduce((s, f) => s + item.floors[f], 0);
     html += `<tr>
-      <td class="text-left">${name}</td><td>${item.category}</td><td>${unit}</td>
+      <td style="text-align:left; font-weight:700;">${name}</td><td>${item.category}</td><td>${unit}</td>
       ${floors.map(f => `<td>${item.floors[f].toLocaleString(undefined, {maximumFractionDigits:2})}</td>`).join("")}
       <td class="col-total">${total.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
     </tr>`;
   });
 
-  // 비율(지표) 행 추가
   html += `<tr class="row-ratio">
-    <td colspan="3" style="text-align:right; font-weight:800; background:#fff4e6;">층별 철근 비율 (Ton / m³) </td>
-    ${floors.map(f => `<td style="background:#fff4e6; font-weight:800; color:#e67e22;">${stats.ratio[f]}</td>`).join("")}
-    <td style="background:#ffd8a8;">-</td>
+    <td colspan="3" style="text-align:right;">층별 톤당 루베 (Ton / m³)</td>
+    ${floors.map(f => `<td>${stats.ratio[f]}</td>`).join("")}
+    <td style="background:#ffe8cc;">-</td>
   </tr>`;
-
   body.innerHTML = html;
   
-  // 대시보드 요약
   const totalConc = floors.reduce((s, f) => s + stats.conc[f], 0);
   const totalRebar = floors.reduce((s, f) => s + stats.rebar[f], 0);
-  const totalRatio = totalConc > 0 ? (totalRebar / totalConc).toFixed(4) : 0;
-  
   $("dong-summary").innerHTML = `
-    <div class="stat-item"><span>총 콘크리트</span><strong>${totalConc.toLocaleString()} m³</strong></div>
-    <div class="stat-item"><span>총 철근</span><strong>${totalRebar.toLocaleString()} Ton</strong></div>
-    <div class="stat-item highlight"><span>평균 톤당 루베</span><strong>${totalRatio} Ton/m³</strong></div>
+    <div class="stat-card"><span>총 콘크리트</span><strong>${totalConc.toLocaleString()} m³</strong></div>
+    <div class="stat-card"><span>총 철근</span><strong>${totalRebar.toLocaleString()} Ton</strong></div>
+    <div class="stat-card highlight"><span>전체 평균 톤당 루베</span><strong>${totalConc > 0 ? (totalRebar / totalConc).toFixed(4) : 0} Ton/m³</strong></div>
   `;
 }
 
-/* 탭 전환 로직 */
+/* 탭 제어 */
+function switchTab(tabId) {
+  document.querySelectorAll(".tab, .tab-panel").forEach(el => el.classList.remove("is-active"));
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add("is-active");
+  $("tab-" + tabId).classList.add("is-active");
+}
+
 document.querySelectorAll(".tab").forEach(tab => {
-  tab.onclick = () => {
-    document.querySelectorAll(".tab, .tab-panel").forEach(el => el.classList.remove("is-active"));
-    tab.classList.add("is-active");
-    $( "tab-" + tab.dataset.tab).classList.add("is-active");
-  };
+  tab.onclick = () => switchTab(tab.dataset.tab);
 });
