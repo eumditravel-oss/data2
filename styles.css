@@ -13,82 +13,46 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", sans-serif; padding: 24px; }
-
 .app-shell { max-width: 1800px; margin: 0 auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .topbar h1 { margin: 0; font-size: 26px; font-weight: 800; }
-
 .tabs, .sub-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.tab, .sub-tab { 
-  padding: 12px 24px; border-radius: 99px; border: 1px solid var(--line);
-  background: #fff; cursor: pointer; font-weight: 700; transition: 0.2s;
-}
+.tab, .sub-tab { padding: 12px 24px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 700; }
 .tab.is-active, .sub-tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
-.panel { 
-  background: var(--panel); border: 1px solid var(--line); 
-  border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px;
-}
+.panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px; }
 .tab-panel, .sub-panel { display: none; }
 .tab-panel.is-active, .sub-panel.is-active { display: block; }
 
-/* 업로드 카드 */
 .upload-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .upload-card { border: 1px solid var(--line); padding: 20px; border-radius: 14px; background: #fbfcff; }
-.filebox input { display: none; }
-.filebox__btn { padding: 8px 16px; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 700; }
 .file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.file-chip { padding: 4px 10px; background: var(--primary-weak); color: var(--primary); border-radius: 99px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); }
+.file-chip { padding: 4px 10px; background: var(--primary-weak); color: var(--primary); border-radius: 99px; font-size: 11px; font-weight: 700; border: 1px solid var(--line); }
 
-/* 설정 리스트 레이아웃 */
-.list-header { display: flex; align-items: center; padding: 12px 16px; background: #f8fbff; border: 1px solid var(--line); font-weight: 800; font-size: 13px; color: var(--muted); }
+.list-header { display: flex; align-items: center; padding: 12px 16px; background: #f8fbff; border: 1px solid var(--line); font-weight: 800; font-size: 13px; }
 .item-row, .dong-row { display: flex; align-items: center; padding: 6px 16px; background: #fff; border: 1px solid var(--line); border-top: none; gap: 12px; }
-.item-row:hover { background: #f4f8ff; }
+.col-check { width: 40px; text-align: center; }
+.col-orig { flex: 1; display: flex; gap: 4px; overflow: hidden; }
+.col-edit { width: 320px; }
+.col-cat { width: 150px; }
+.col-p-name { width: 280px; font-weight: 700; color: var(--primary); }
 
-.col-check { width: 40px; flex-shrink: 0; text-align: center; }
-.col-orig { flex: 1; display: flex; gap: 6px; overflow: hidden; }
-.col-edit { width: 320px; flex-shrink: 0; }
-.col-cat { width: 150px; flex-shrink: 0; }
-.col-p-name { width: 280px; font-weight: 700; color: var(--primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-chip { flex: 1; padding: 4px; border-radius: 4px; font-size: 10px; text-align: center; border: 1px solid #eee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #fff; }
+.p-chip.current { border-left: 3px solid var(--primary); }
 
-.p-chip { flex: 1; padding: 5px; border-radius: 6px; font-size: 11px; text-align: center; border: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.p-chip.current { background: var(--current-bg); border-left: 3px solid var(--primary); }
-.p-chip.a { background: #f9f5ff; border-left: 3px solid #9b51e0; }
-.p-chip.b { background: #f2faf5; border-left: 3px solid #27ae60; }
-.p-chip.c { background: #fff9f2; border-left: 3px solid #f2994a; }
-
-/* 비교표 내부 가로/세로 스크롤 */
-.compare-card { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 20px; background: #fff; overflow: hidden; box-shadow: var(--shadow); }
+.compare-card { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 20px; background: #fff; overflow: hidden; }
 .compare-card__head { padding: 12px 16px; background: #fbfcff; border-bottom: 1px solid var(--line); }
-.compare-card__body { max-height: 450px; overflow: auto; }
+.compare-card__body { max-height: 400px; overflow: auto; }
 
 .compare-matrix { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
 .compare-matrix th, .compare-matrix td { padding: 10px; border: 0.5px solid var(--line); text-align: center; font-size: 13px; white-space: nowrap; }
 .compare-matrix thead th { position: sticky; top: 0; background: #f4f7fd; z-index: 10; font-weight: 800; }
-.compare-matrix tr td:first-child { position: sticky; left: 0; background: #fcfdfe; font-weight: 800; z-index: 11; width: 140px; }
-.row-current td { background-color: var(--current-bg) !important; }
+.compare-matrix tr td:first-child { position: sticky; left: 0; background: #fcfdfe; font-weight: 800; z-index: 11; width: 150px; }
+.row-current td { background-color: var(--current-bg) !important; font-weight: 700; }
 
-/* 유틸리티 */
-.input, .dong-std-input, .item-std-input, .item-cat-select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; outline: none; transition: 0.2s; }
-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,94,255,0.1); }
-.btn { padding: 12px 20px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; transition: 0.2s; }
+.input, .dong-std-input, .item-std-input, .item-cat-select { padding: 8px; border: 1px solid var(--line); border-radius: 8px; outline: none; }
+.btn { padding: 10px 20px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
-.toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
-.status-box { margin-top: 15px; padding: 12px; background: #f0f4f8; border-radius: 10px; font-size: 14px; }
-
-/* 기존 스타일에 추가 */
-.ratio-analysis-panel {
-  border-left: 5px solid #ff9f43; /* 강조 포인트 컬러 */
-  background: #fffcf9 !important;
-}
-
-.ratio-analysis-panel h2 {
-  color: #d35400;
-}
-
-/* 상세 행 강조 */
-.row-current td {
-  background-color: var(--current-bg) !important;
-  font-weight: bold;
-}
+.toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+.status-box { margin-top: 15px; padding: 12px; background: #f0f4f8; border-radius: 10px; font-size: 14px; color: var(--muted); }
