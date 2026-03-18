@@ -26,50 +26,51 @@ const dom = {
   uploadStatus: $("upload-status")
 };
 
-/* 중분류 예측 (사용자 요구사항 반영) */
+/* 중분류 예측 알고리즘 */
 function predictCategory(name) {
   const s = String(name).toUpperCase().replace(/\s+/g, "");
   if (/(H|D|HD|SD|D)\d+/.test(s) || s.includes("철근") || s.startsWith("H1") || s.startsWith("D1")) return "철근";
   if (s.includes("MPA") || /\d+-\d+-\d+/.test(s) || (/^\d+$/.test(s) && parseInt(s) >= 150)) return "콘크리트";
-  if (["폼","FORM","회","회","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
+  if (["폼","FORM","회","유로","알폼","갱폼","합벽"].some(k => s.includes(k)) || /[가-힣]/.test(s)) return "거푸집";
   return "잡/기타";
 }
 
-/* 데이터 파싱 시작 */
+/* 데이터 파싱 메인 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다. 잠시만 기다려주세요...";
+  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다...";
   try {
     for (const p of PROJECTS) {
       const files = Array.from($(`file-${p.key}`).files);
+      if(files.length === 0) continue;
       const pState = state.projects[p.key];
       for (const file of files) {
-        const rows = XLSX.utils.sheet_to_json(XLSX.read(await file.arrayBuffer(),{type:'array'}).Sheets[XLSX.read(await file.arrayBuffer(),{type:'array'}).SheetNames[0]], {header:1, defval:""});
-        parseSheetData(rows, pState);
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        wb.SheetNames.forEach(sn => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
+          parseSheetData(rows, pState);
+        });
       }
     }
     initDongMapping(); buildItemGroups(); renderDongUI(); renderItemUI();
-    dom.uploadStatus.textContent = "분석 완료! '설정' 탭에서 데이터를 검토하세요.";
+    dom.uploadStatus.textContent = "분석 완료!";
     dom.tabs[1].click();
-  } catch(e) { dom.uploadStatus.textContent = "분석 중 오류: " + e.message; }
+  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; console.error(e); }
 };
 
-/** 엑셀 데이터 추출 핵심 로직 **/
+/* 엑셀 구조 정밀 파싱 */
 function parseSheetData(rows, pState) {
   let currentDong = "";
-  // 엑셀 3행(index 2)과 4행(index 3)에서 자재명/규격 결합 추출
-  const headerRow1 = rows[2] || [];
-  const headerRow2 = rows[3] || [];
-  const itemNames = headerRow1.map((val, idx) => {
-    const combined = (String(val) + String(headerRow2[idx])).trim();
-    return combined;
-  });
+  const row3 = rows[2] || []; // 콘크리트 강도 등 (예: 27MPA)
+  const row4 = rows[3] || []; // 거푸집/철근 등 (예: 3회, H10)
 
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
+    if (!row || row.length === 0) continue;
+
     const rowText = row.join("|");
-    
-    // 1. [동 명칭] 추출 정규식
-    const dongMatch = rowText.match(/\[([^\]]+)\]/);
+    // 동 명칭 추출: [CURRENT] 같은 내부 값 제외, 실제 동 이름만 추출
+    const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
     if (dongMatch) {
       currentDong = dongMatch[1].trim();
       if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
@@ -78,23 +79,39 @@ function parseSheetData(rows, pState) {
     }
     if (!currentDong) continue;
 
-    // 2. 층 이름 추출 (1열) - 비어있으면 데이터 행이 아니거나 이전 행의 연속임
+    // 층 추출
     const fRaw = String(row[0]).trim();
-    if (fRaw === "" || fRaw.includes("층") || fRaw.includes("계")) continue;
+    if (fRaw === "" || fRaw.includes("층") || fRaw.includes("계") || fRaw.includes("공사명")) continue;
     
     let floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
     if (!pState.floors.includes(floor)) pState.floors.push(floor);
 
-    // 3. 수량 데이터 수집
+    // 열 데이터 수집
     for (let c = 1; c < row.length; c++) {
-      const name = itemNames[c];
       const val = parseFloat(String(row[c]).replace(/,/g, ""));
+      if (isNaN(val) || val === 0) continue;
+
+      // 상하 헤더 분리: 3행과 4행 중 실제 값이 존재하는 헤더를 매칭
+      // 엑셀 소스 상 같은 열에 데이터가 위아래로 나뉘어 있는 특성 반영
+      let itemName = "";
+      // 수량 행(동일 층의 첫 번째 행)인지 판별 로직 (보통 층 이름이 있는 행)
+      // 엑셀 구조상 3행 헤더는 첫 번째 수량행, 4행 헤더는 두 번째 수량행과 매칭됨
+      if (fRaw !== "") {
+        itemName = String(row3[c] || "").trim(); // 3행(콘크리트) 우선
+      } else {
+        itemName = String(row4[c] || "").trim(); // 4행(거푸집/철근) 우선
+      }
       
-      if (!name || isNaN(val) || val === 0) continue;
+      // 만약 itemName이 비어있다면 보조 헤더 확인
+      if (!itemName) itemName = String(row3[c] || row4[c] || "").trim();
+      if (!itemName) continue;
+
+      if (!pState.rawItems.includes(itemName)) pState.rawItems.push(itemName);
+      pState.data[currentDong][itemName] = pState.data[currentDong][itemName] || {};
       
-      if (!pState.rawItems.includes(name)) pState.rawItems.push(name);
-      pState.data[currentDong][name] = pState.data[currentDong][name] || {};
-      pState.data[currentDong][name][floor] = (pState.data[currentDong][name][floor] || 0) + val;
+      // 실제 층 데이터는 fRaw가 있는 행에 귀속 (없으면 바로 직전 층 이름 사용)
+      const targetFloor = floor;
+      pState.data[currentDong][itemName][targetFloor] = (pState.data[currentDong][itemName][targetFloor] || 0) + val;
     }
   }
 }
@@ -122,17 +139,16 @@ function renderDongUI() {
   });
 }
 
-/* 아이템 그룹화 */
 function buildItemGroups() {
   const grouped = new Map();
   PROJECTS.forEach(p => state.projects[p.key].rawItems.forEach(raw => {
-    const sig = raw.replace(/\s+/g,"").toUpperCase();
+    const sig = raw.replace(/\s+/g, "").toUpperCase();
     if (!grouped.has(sig)) {
-      grouped.set(sig, { id:Math.random().toString(36).substr(2,9), canonical:raw, category:predictCategory(raw), items:{current:[],a:[],b:[],c:[]} });
+      grouped.set(sig, { id: Math.random().toString(36).substr(2, 9), canonical: raw, category: predictCategory(raw), items: { current: [], a: [], b: [], c: [] } });
     }
     if (!grouped.get(sig).items[p.key].includes(raw)) grouped.get(sig).items[p.key].push(raw);
   }));
-  state.mappingGroups = [...grouped.values()].sort((a,b)=>a.canonical.localeCompare(b.canonical));
+  state.mappingGroups = [...grouped.values()].sort((a, b) => a.canonical.localeCompare(b.canonical));
 }
 
 function renderItemUI() {
@@ -142,7 +158,11 @@ function renderItemUI() {
       <div class="col-check"><input type="checkbox"></div>
       <div class="col-orig">${PROJECTS.map(p=>`<span class="p-chip ${p.key}">${g.items[p.key][0]||'-'}</span>`).join("")}</div>
       <div class="col-edit"><input class="item-std-input" data-id="${g.id}" value="${g.canonical}" /></div>
-      <div class="col-cat"><select class="item-cat-select" data-id="${g.id}">${CATEGORIES.map(c=>`<option value="${c}" ${g.category===c?'selected':''}>${c}</option>`).join("")}</select></div>
+      <div class="col-cat">
+        <select class="item-cat-select" data-id="${g.id}">
+          ${CATEGORIES.map(c => `<option value="${c}" ${g.category === c ? 'selected' : ''}>${c}</option>`).join("")}
+        </select>
+      </div>
     </div>`).join("");
   document.querySelectorAll(".item-std-input, .item-cat-select").forEach(el => {
     el.onchange = el.oninput = (e) => {
@@ -164,7 +184,7 @@ function applyNav(el) {
   };
 }
 
-/* 3. 비교표 렌더링 (A, B, C 상세 데이터 포함) */
+/* 최종 비교표 렌더링 */
 $("btn-apply-all").onclick = () => {
   state.mappedReady = true;
   const stdDongs = [...new Set(Object.values(state.dongMap))].sort();
@@ -187,21 +207,20 @@ function renderCompare() {
     if (state.dongMap[`${p.key}::${orig}`] !== targetStd) return;
     const dData = state.projects[p.key].data[orig];
     for (const raw in dData) {
-      const g = state.mappingGroups.find(x => x.items[p.key].includes(raw));
-      if (!g || (catFilter !== 'all' && g.category !== catFilter)) continue;
+      const group = state.mappingGroups.find(x => x.items[p.key].includes(raw));
+      if (!group || (catFilter !== 'all' && group.category !== catFilter)) continue;
       
-      unified.items[g.canonical] = unified.items[g.canonical] || { cat: g.category };
+      unified.items[group.canonical] = unified.items[group.canonical] || { cat: group.category };
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
-        if (!unified.items[g.canonical][f]) unified.items[g.canonical][f] = {current:0,a:0,b:0,c:0};
-        unified.items[g.canonical][f][p.key] += dData[raw][f];
+        if (!unified.items[group.canonical][f]) unified.items[group.canonical][f] = {current:0, a:0, b:0, c:0};
+        unified.items[group.canonical][f][p.key] += dData[raw][f];
       }
     }
   }));
 
   unified.floors.sort((x,y) => (parseInt(x)||0) - (parseInt(y)||0));
 
-  // 분석 보드 및 카드 렌더링
   renderRatioBoard(unified);
   dom.compareList.innerHTML = Object.keys(unified.items).map(name => {
     const v = unified.items[name];
@@ -212,7 +231,7 @@ function renderCompare() {
           <table class="compare-matrix">
             <thead><tr><th>구분</th>${unified.floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
             <tbody>
-              <tr class="row-current"><td>현재 수량</td>${unified.floors.map(f=>`<td>${(v[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
+              <tr class="row-current"><td>현재</td>${unified.floors.map(f=>`<td>${(v[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
               <tr><td>유사 A</td>${unified.floors.map(f=>`<td>${(v[f]?.a||0).toLocaleString()}</td>`).join("")}</tr>
               <tr><td>유사 B</td>${unified.floors.map(f=>`<td>${(v[f]?.b||0).toLocaleString()}</td>`).join("")}</tr>
               <tr><td>유사 C</td>${unified.floors.map(f=>`<td>${(v[f]?.c||0).toLocaleString()}</td>`).join("")}</tr>
@@ -248,19 +267,14 @@ function renderRatioBoard(unified) {
     <table class="compare-matrix">
       <thead><tr><th>구분 (Ton/m³)</th>${floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
       <tbody>
-        <tr class="row-current"><td>현재 프로젝트</td>${floors.map(f=>`<td>${data.current[f]}</td>`).join("")}</tr>
+        <tr class="row-current"><td>현재</td>${floors.map(f=>`<td>${data.current[f]}</td>`).join("")}</tr>
         <tr><td>유사 A</td>${floors.map(f=>`<td>${data.a[f]}</td>`).join("")}</tr>
         <tr><td>유사 B</td>${floors.map(f=>`<td>${data.b[f]}</td>`).join("")}</tr>
         <tr><td>유사 C</td>${floors.map(f=>`<td>${data.c[f]}</td>`).join("")}</tr>
-        <tr style="background:#f4f7fd; font-weight:bold;"><td>평균(ABC)</td>${floors.map(f=>{
-          const avg = (parseFloat(data.a[f]) + parseFloat(data.b[f]) + parseFloat(data.c[f])) / 3;
-          return `<td>${avg.toFixed(4)}</td>`;
-        }).join("")}</tr>
       </tbody>
     </table>`;
 }
 
-/* 메뉴 제어 */
 dom.tabs.forEach(t => t.onclick = () => {
   dom.tabs.forEach(x => x.classList.remove('is-active')); t.classList.add('is-active');
   document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('is-active'));
