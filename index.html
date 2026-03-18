@@ -10,8 +10,13 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <h1>QS 프로젝트 비교표</h1>
-      <button id="btn-reset" class="btn btn-ghost">초기화</button>
+      <div class="topbar__title">
+        <h1>QS 프로젝트 비교표</h1>
+        <p>프로젝트별 수량을 비교하고 동 명칭 및 아이템을 통합 관리합니다.</p>
+      </div>
+      <div class="topbar__actions">
+        <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
+      </div>
     </header>
 
     <main class="page">
@@ -24,10 +29,38 @@
       <section id="tab-upload" class="tab-panel is-active">
         <div class="panel">
           <div class="upload-grid">
-            <div class="upload-card"><strong>현재 프로젝트</strong><input type="file" id="file-current" multiple /><div id="list-current" class="file-list"></div></div>
-            <div class="upload-card"><strong>유사 A</strong><input type="file" id="file-a" multiple /><div id="list-a" class="file-list"></div></div>
-            <div class="upload-card"><strong>유사 B</strong><input type="file" id="file-b" multiple /><div id="list-b" class="file-list"></div></div>
-            <div class="upload-card"><strong>유사 C</strong><input type="file" id="file-c" multiple /><div id="list-c" class="file-list"></div></div>
+            <div class="upload-card">
+              <div class="upload-card__head"><strong>현재 프로젝트</strong></div>
+              <label class="filebox">
+                <input type="file" id="file-current" multiple onchange="updateFiles('current')"/>
+                <span class="filebox__btn">파일 선택</span>
+              </label>
+              <div id="list-current" class="file-list"></div>
+            </div>
+            <div class="upload-card">
+              <div class="upload-card__head"><strong>유사 A</strong></div>
+              <label class="filebox">
+                <input type="file" id="file-a" multiple onchange="updateFiles('a')"/>
+                <span class="filebox__btn">파일 선택</span>
+              </label>
+              <div id="list-a" class="file-list"></div>
+            </div>
+            <div class="upload-card">
+              <div class="upload-card__head"><strong>유사 B</strong></div>
+              <label class="filebox">
+                <input type="file" id="file-b" multiple onchange="updateFiles('b')"/>
+                <span class="filebox__btn">파일 선택</span>
+              </label>
+              <div id="list-b" class="file-list"></div>
+            </div>
+            <div class="upload-card">
+              <div class="upload-card__head"><strong>유사 C</strong></div>
+              <label class="filebox">
+                <input type="file" id="file-c" multiple onchange="updateFiles('c')"/>
+                <span class="filebox__btn">파일 선택</span>
+              </label>
+              <div id="list-c" class="file-list"></div>
+            </div>
           </div>
           <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px;">데이터 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
@@ -42,22 +75,34 @@
           </div>
 
           <div id="sub-dong" class="sub-panel is-active">
-            <div id="dong-mapping-list" class="mapping-list"></div>
+            <div class="toolbar">
+              <p style="margin:0; color:var(--muted); font-size:14px;">
+                ※ 각 프로젝트에서 추출된 서로 다른 동 이름을 하나의 표준 이름으로 매핑하세요. (예: 1BL_101 → 101)
+              </p>
+            </div>
+            <div class="list-header" style="background:#f8fbff; border:1px solid var(--line); border-bottom:none;">
+              <div style="flex:1; padding-left:16px;">프로젝트별 원본 동 명칭</div>
+              <div style="width:40px; text-align:center;">→</div>
+              <div style="flex:1; padding-left:16px;">표준 동 명칭 (비교표 기준)</div>
+            </div>
+            <div class="mapping-list" id="dong-mapping-list">
+              </div>
           </div>
 
           <div id="sub-item" class="sub-panel">
             <div class="toolbar">
-              <input type="text" id="mapping-search" class="input" placeholder="아이템 검색..." />
-              <button id="btn-merge" class="btn btn-secondary">선택 그룹 병합</button>
-              <button id="btn-apply-all" class="btn btn-primary">최종 적용</button>
+              <input type="text" id="mapping-search" class="input" placeholder="아이템 검색..." style="width:300px;" />
+              <div style="flex:1"></div>
+              <button id="btn-apply-all" class="btn btn-primary">설정 완료 및 비교표 생성</button>
             </div>
             <div class="list-header">
               <div class="col-check">선택</div>
-              <div class="col-orig">프로젝트별 원본 아이템명 (현재 / A / B / C)</div>
+              <div class="col-orig">프로젝트별 원본 (현재 / A / B / C)</div>
               <div class="col-edit">통일명 (표준명칭)</div>
               <div class="col-cat">중분류</div>
             </div>
-            <div id="mapping-group-list" class="mapping-list"></div>
+            <div id="mapping-group-list" class="mapping-list">
+              </div>
           </div>
         </div>
       </section>
@@ -65,20 +110,39 @@
       <section id="tab-compare" class="tab-panel">
         <div class="panel">
           <div class="toolbar">
-            <select id="filter-dong" class="input"></select>
-            <select id="filter-category" class="input">
-              <option value="all">중분류 전체</option>
-              <option value="콘크리트">콘크리트</option>
-              <option value="거푸집">거푸집</option>
-              <option value="철근">철근</option>
-              <option value="잡/기타">잡/기타</option>
-            </select>
+            <div class="filter-group">
+              <label>동 선택:</label>
+              <select id="filter-dong" class="input"></select>
+            </div>
+            <div class="filter-group">
+              <label>중분류:</label>
+              <select id="filter-category" class="input">
+                <option value="all">중분류 전체</option>
+                <option value="콘크리트">콘크리트</option>
+                <option value="거푸집">거푸집</option>
+                <option value="철근">철근</option>
+                <option value="잡/기타">잡/기타</option>
+              </select>
+            </div>
+            <input type="text" id="filter-item" class="input" placeholder="아이템명 검색..." style="width:250px;" />
           </div>
-          <div id="compare-card-list"></div>
+          <div id="compare-card-list" class="compare-card-list">
+            </div>
+          <div id="compare-status" class="status-box"></div>
         </div>
       </section>
     </main>
   </div>
+
   <script src="app.js"></script>
+  <script>
+    // 파일 선택 시 즉시 리스트 표시를 위한 보조 함수
+    function updateFiles(key) {
+      const input = document.getElementById('file-' + key);
+      const list = document.getElementById('list-' + key);
+      const files = Array.from(input.files);
+      list.innerHTML = files.map(f => `<span class="file-chip">${f.name}</span>`).join('');
+    }
+  </script>
 </body>
 </html>
