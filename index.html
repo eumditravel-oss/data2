@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 비교표</h1>
-        <p>프로젝트별 수량을 비교하고 중분류 예측 알고리즘을 사용하여 데이터를 통합 관리합니다.</p>
+        <p>프로젝트별 수량을 비교하고 중분류 예측 및 동/아이템 명칭을 통합 관리합니다.</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
@@ -71,10 +71,14 @@
         <div class="panel">
           <div class="sub-tabs">
             <button class="sub-tab is-active" data-sub="sub-dong">동 명칭 통일 관리</button>
-            <button class="sub-tab" data-sub="sub-item">아이템 통일 관리 (자동 예측됨)</button>
+            <button class="sub-tab" data-sub="sub-item">아이템 통일 관리</button>
           </div>
 
           <div id="sub-dong" class="sub-panel is-active">
+            <div class="toolbar">
+              <input type="text" id="dong-search" class="input" placeholder="원본 동 명칭 검색..." style="width:300px;" />
+              <p style="margin:0; font-size:13px; color:var(--muted);">※ 프로젝트별 다른 동 이름을 하나의 표준 이름으로 맞추세요. (상/하 방향키 지원)</p>
+            </div>
             <div class="list-header">
               <div style="flex:1; padding-left:16px;">프로젝트별 원본 동 명칭</div>
               <div style="width:40px; text-align:center;">→</div>
@@ -85,13 +89,13 @@
 
           <div id="sub-item" class="sub-panel">
             <div class="toolbar">
-              <input type="text" id="mapping-search" class="input" placeholder="아이템 검색..." style="width:300px;" />
+              <input type="text" id="mapping-search" class="input" placeholder="아이템 명칭 검색..." style="width:300px;" />
               <div style="flex:1"></div>
               <button id="btn-apply-all" class="btn btn-primary">설정 완료 및 비교표 생성</button>
             </div>
             <div class="list-header">
               <div class="col-check">선택</div>
-              <div class="col-orig">프로젝트별 원본 (현재/A/B/C)</div>
+              <div class="col-orig">프로젝트별 원본 (현재 / A / B / C)</div>
               <div class="col-edit">통일명 (표준명)</div>
               <div class="col-cat">중분류(예측됨)</div>
             </div>
@@ -111,12 +115,14 @@
               <option value="철근">철근</option>
               <option value="잡/기타">잡/기타</option>
             </select>
+            <input type="text" id="filter-item" class="input" placeholder="비교표 내 아이템 검색..." />
           </div>
           <div id="compare-card-list"></div>
         </div>
       </section>
     </main>
   </div>
+
   <script src="app.js"></script>
   <script>
     function updateFiles(key) {
