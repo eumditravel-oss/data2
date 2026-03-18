@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QS 단일 프로젝트 수량 관리자</title>
+  <title>QS 단일 프로젝트 분석기</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
@@ -11,8 +11,8 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar__title">
-        <h1>QS 프로젝트 데이터 분석</h1>
-        <p>동별 대분류 및 층별 톤당 루베값(철근 비율) 분석 도구</p>
+        <h1>QS 단일 프로젝트 분석</h1>
+        <p>동별 대분류 및 층별 톤당 루베(Ton/m³) 정밀 분석 도구</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
@@ -27,17 +27,17 @@
       </section>
 
       <section id="tab-upload" class="tab-panel is-active">
-        <div class="panel upload-panel">
+        <div class="panel">
           <div class="upload-box">
-            <h3>프로젝트 파일 업로드</h3>
-            <p>분석할 엑셀 파일들을 선택하세요 (여러 파일 가능)</p>
+            <h3>프로젝트 엑셀 업로드</h3>
+            <p>분석할 파일을 선택하세요. (여러 파일 동시 선택 가능)</p>
             <label class="filebox">
               <input type="file" id="file-main" multiple onchange="updateFiles()"/>
               <span class="filebox__btn">파일 선택</span>
             </label>
             <div id="file-list" class="file-list"></div>
           </div>
-          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px; height: 50px; font-size: 16px;">데이터 정밀 분석 시작</button>
+          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:20px; height:54px; font-size:16px;">데이터 정밀 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
         </div>
       </section>
@@ -45,32 +45,35 @@
       <section id="tab-mapping" class="tab-panel">
         <div class="panel">
           <div class="toolbar">
-            <h3>아이템 카테고리 지정</h3>
-            <p>지표 계산을 위해 철근과 콘크리트 항목을 확인해주세요.</p>
+            <div class="toolbar__title">
+              <h3>아이템 분류 및 명칭 설정</h3>
+              <p>추출된 아이템의 중분류를 확인하세요. (예측 알고리즘 적용됨)</p>
+            </div>
             <button id="btn-apply" class="btn btn-primary" style="margin-left:auto;">설정 완료 및 수량표 생성</button>
           </div>
-          <div class=\"list-header\">
-            <div style=\"width:60px; text-align:center;\">번호</div>
-            <div style=\"flex:1;\">추출된 아이템 명칭</div>
-            <div style=\"width:200px;\">통일 명칭</div>
-            <div style=\"width:150px;\">중분류(예측됨)</div>
+          <div class="list-header">
+            <div style="width:60px; text-align:center;">번호</div>
+            <div style="flex:1; padding-left:10px;">추출된 원본 아이템 명칭</div>
+            <div style="width:250px;">표준화 명칭</div>
+            <div style="width:180px;">중분류 분류</div>
           </div>
-          <div id="mapping-list" class="mapping-list"></div>
+          <div id="mapping-list" class="mapping-list">
+            </div>
         </div>
       </section>
 
       <section id="tab-view" class="tab-panel">
-        <div class="panel result-panel">
+        <div id="dong-summary" class="summary-container"></div>
+
+        <div class="panel">
           <div class="toolbar">
             <div class="filter-group">
-              <label>동 선택 (대분류):</label>
-              <select id="filter-dong" class="input" style="width:200px;"></select>
+              <label>대분류(동) 선택:</label>
+              <select id="filter-dong" class="input" style="width:220px;"></select>
             </div>
             <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">Excel 내보내기</button>
           </div>
           
-          <div id="dong-summary" class="summary-card"></div>
-
           <div class="excel-view-container">
             <table id="main-excel-table" class="excel-table">
               <thead><tr id="table-header-row"></tr></thead>
