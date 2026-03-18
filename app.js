@@ -17,8 +17,10 @@ const state = {
     b: createEmptyProjectState(),
     c: createEmptyProjectState()
   },
-  mappingGroups: [],       // [{groupId, signature, suggested, canonical, itemsByProject}]
-  mappings: {},            // rawKey => canonicalName
+  mappingGroups: [],
+  mappings: {},
+  selectedGroupIds: new Set(),
+  selectedSplitItems: new Set(),
   parsedReady: false,
   mappedReady: false
 };
@@ -73,6 +75,8 @@ const dom = {
 
   mappingSearch: $("mapping-search"),
   btnAutofill: $("btn-autofill"),
+  btnMergeGroups: $("btn-merge-groups"),
+  btnSplitSelected: $("btn-split-selected"),
   btnApplyMapping: $("btn-apply-mapping"),
   mappingGroupList: $("mapping-group-list"),
   mappingStatus: $("mapping-status"),
@@ -132,6 +136,8 @@ dom.btnReset.addEventListener("click", () => {
 
   state.mappingGroups = [];
   state.mappings = {};
+  state.selectedGroupIds = new Set();
+  state.selectedSplitItems = new Set();
   state.parsedReady = false;
   state.mappedReady = false;
 
@@ -177,6 +183,8 @@ dom.btnParse.addEventListener("click", async () => {
 
     state.parsedReady = true;
     state.mappedReady = false;
+    state.selectedGroupIds.clear();
+    state.selectedSplitItems.clear();
 
     buildMappingGroups();
     renderMappingGroupList();
@@ -342,7 +350,7 @@ function mergeParsedProject(target, parsed) {
 }
 
 /* =========================
-   아이템 그룹화
+   아이템 그룹화 / 병합 / 분리
 ========================= */
 function buildMappingGroups() {
   const grouped = new Map();
@@ -353,16 +361,11 @@ function buildMappingGroups() {
       const signature = makeItemSignature(rawItem);
       if (!grouped.has(signature)) {
         grouped.set(signature, {
-          groupId: signature,
+          groupId: `grp_${makeUid()}`,
           signature,
           suggested: suggestCanonicalName(rawItem),
           canonical: suggestCanonicalName(rawItem),
-          itemsByProject: {
-            current: [],
-            a: [],
-            b: [],
-            c: []
-          }
+          itemsByProject: { current: [], a: [], b: [], c: [] }
         });
       }
       grouped.get(signature).itemsByProject[key].push(rawItem);
@@ -371,13 +374,25 @@ function buildMappingGroups() {
 
   state.mappingGroups = [...grouped.values()]
     .map(group => {
+      normalizeGroupItems(group);
       group.canonical = chooseBestCanonical(group);
       return group;
     })
     .sort((a, b) => a.canonical.localeCompare(b.canonical, "ko"));
 
+  rebuildMappingsFromGroups();
+}
+
+function normalizeGroupItems(group) {
+  PROJECTS.forEach(({ key }) => {
+    group.itemsByProject[key] = uniqueSort(group.itemsByProject[key] || []);
+  });
+}
+
+function rebuildMappingsFromGroups() {
   state.mappings = {};
   state.mappingGroups.forEach(group => {
+    normalizeGroupItems(group);
     PROJECTS.forEach(({ key }) => {
       group.itemsByProject[key].forEach(rawItem => {
         state.mappings[makeRawKey(key, rawItem)] = group.canonical;
@@ -393,11 +408,9 @@ function makeItemSignature(rawItem) {
     .replace(/[_\-]/g, "")
     .replace(/[(){}\[\]]/g, "")
     .replace(/\/+/g, "/")
-    .replace(/MPA/g, "MPA")
     .replace(/WH빔/g, "WHB")
     .replace(/빔/g, "B")
-    .replace(/합벽/g, "합벽")
-    .replace(/CURVED/g, "CURVED");
+    .replace(/MPA/g, "MPA");
 }
 
 function chooseBestCanonical(group) {
@@ -407,8 +420,11 @@ function chooseBestCanonical(group) {
     ...group.itemsByProject.b,
     ...group.itemsByProject.c
   ];
-  if (!all.length) return group.suggested;
-  return uniqueSort(all, (x, y) => String(x).length - String(y).length || String(x).localeCompare(String(y), "ko"))[0];
+  if (!all.length) return group.suggested || "새 그룹";
+  return uniqueSort(
+    all,
+    (x, y) => String(x).length - String(y).length || String(x).localeCompare(String(y), "ko")
+  )[0];
 }
 
 function renderMappingGroupList() {
@@ -422,7 +438,6 @@ function renderMappingGroupList() {
       ...group.itemsByProject.b,
       ...group.itemsByProject.c
     ].join(" ").toLowerCase();
-
     return !q || texts.includes(q);
   });
 
@@ -432,15 +447,25 @@ function renderMappingGroupList() {
   }
 
   dom.mappingGroupList.innerHTML = groups.map(group => {
+    const selected = state.selectedGroupIds.has(group.groupId) ? "is-selected" : "";
     return `
-      <div class="mapping-group-card">
+      <div class="mapping-group-card ${selected}">
         <div class="mapping-group-card__top">
+          <div class="mapping-group-card__pick">
+            <input type="checkbox" class="group-select-checkbox" data-groupid="${escapeHtmlAttr(group.groupId)}" ${state.selectedGroupIds.has(group.groupId) ? "checked" : ""} />
+          </div>
+
           <div class="mapping-group-card__left">
             <div class="mapping-group-card__title">${escapeHtml(group.canonical)}</div>
             <div class="mapping-group-card__meta">
-              유사 아이템을 한 그룹으로 묶었습니다. 이 그룹의 모든 아이템은 아래 통일명으로 적용됩니다.
+              그룹 선택 후 병합 가능 / 그룹 내부 아이템 선택 후 분리 가능
+            </div>
+            <div class="mapping-actions-tip">
+              병합: 그룹 체크박스 선택 → 선택 그룹 병합
+              · 분리: 아래 개별 아이템 체크 → 선택 아이템 분리
             </div>
           </div>
+
           <div class="mapping-group-card__right">
             <div class="mapping-canonical">
               <label>통일 아이템명</label>
@@ -456,21 +481,29 @@ function renderMappingGroupList() {
         </div>
 
         <div class="mapping-project-grid">
-          ${renderMappingProjectColumn("current", "현재 프로젝트", group.itemsByProject.current)}
-          ${renderMappingProjectColumn("a", "A 프로젝트", group.itemsByProject.a)}
-          ${renderMappingProjectColumn("b", "B 프로젝트", group.itemsByProject.b)}
-          ${renderMappingProjectColumn("c", "C 프로젝트", group.itemsByProject.c)}
+          ${renderMappingProjectColumn(group.groupId, "current", "현재 프로젝트", group.itemsByProject.current)}
+          ${renderMappingProjectColumn(group.groupId, "a", "A 프로젝트", group.itemsByProject.a)}
+          ${renderMappingProjectColumn(group.groupId, "b", "B 프로젝트", group.itemsByProject.b)}
+          ${renderMappingProjectColumn(group.groupId, "c", "C 프로젝트", group.itemsByProject.c)}
         </div>
       </div>
     `;
   }).join("");
 
-  bindGroupCanonicalInputs();
+  bindGroupControls();
 }
 
-function renderMappingProjectColumn(projectKey, title, items) {
+function renderMappingProjectColumn(groupId, projectKey, title, items) {
   const body = items.length
-    ? items.map(item => `<span class="mapping-item-chip">${escapeHtml(item)}</span>`).join("")
+    ? items.map(item => {
+        const splitKey = makeSplitKey(groupId, projectKey, item);
+        return `
+          <label class="mapping-item-chip">
+            <input type="checkbox" class="split-item-checkbox" data-groupid="${escapeHtmlAttr(groupId)}" data-projectkey="${escapeHtmlAttr(projectKey)}" data-item="${escapeHtmlAttr(item)}" ${state.selectedSplitItems.has(splitKey) ? "checked" : ""} />
+            <span>${escapeHtml(item)}</span>
+          </label>
+        `;
+      }).join("")
     : `<span class="mapping-item-chip is-empty">해당 없음</span>`;
 
   return `
@@ -481,21 +514,42 @@ function renderMappingProjectColumn(projectKey, title, items) {
   `;
 }
 
-function bindGroupCanonicalInputs() {
+function bindGroupControls() {
+  document.querySelectorAll(".group-select-checkbox").forEach(input => {
+    input.addEventListener("change", (e) => {
+      const groupId = e.target.dataset.groupid;
+      if (e.target.checked) state.selectedGroupIds.add(groupId);
+      else state.selectedGroupIds.delete(groupId);
+      renderMappingGroupList();
+    });
+  });
+
+  document.querySelectorAll(".split-item-checkbox").forEach(input => {
+    input.addEventListener("change", (e) => {
+      const groupId = e.target.dataset.groupid;
+      const projectKey = e.target.dataset.projectkey;
+      const item = e.target.dataset.item;
+      const splitKey = makeSplitKey(groupId, projectKey, item);
+
+      if (e.target.checked) state.selectedSplitItems.add(splitKey);
+      else state.selectedSplitItems.delete(splitKey);
+    });
+  });
+
   document.querySelectorAll(".group-canonical-input").forEach(input => {
     input.addEventListener("input", (e) => {
       const groupId = e.target.dataset.groupid;
       const group = state.mappingGroups.find(g => g.groupId === groupId);
       if (!group) return;
-      group.canonical = e.target.value.trim();
-
-      PROJECTS.forEach(({ key }) => {
-        group.itemsByProject[key].forEach(rawItem => {
-          state.mappings[makeRawKey(key, rawItem)] = group.canonical;
-        });
-      });
+      group.canonical = e.target.value.trim() || chooseBestCanonical(group);
+      rebuildMappingsFromGroups();
+      populateCanonicalDatalist();
     });
   });
+}
+
+function makeSplitKey(groupId, projectKey, item) {
+  return `${groupId}::${projectKey}::${item}`;
 }
 
 dom.mappingSearch.addEventListener("input", renderMappingGroupList);
@@ -503,15 +557,116 @@ dom.mappingSearch.addEventListener("input", renderMappingGroupList);
 dom.btnAutofill.addEventListener("click", () => {
   state.mappingGroups.forEach(group => {
     group.canonical = chooseBestCanonical(group);
+  });
+  rebuildMappingsFromGroups();
+  populateCanonicalDatalist();
+  renderMappingGroupList();
+  dom.mappingStatus.textContent = "그룹 기준으로 통일명을 자동 채웠습니다.";
+});
+
+dom.btnMergeGroups.addEventListener("click", () => {
+  if (state.selectedGroupIds.size < 2) {
+    dom.mappingStatus.textContent = "병합하려면 2개 이상의 그룹을 선택해 주세요.";
+    return;
+  }
+
+  const selected = state.mappingGroups.filter(g => state.selectedGroupIds.has(g.groupId));
+  const remain = state.mappingGroups.filter(g => !state.selectedGroupIds.has(g.groupId));
+
+  const merged = {
+    groupId: `grp_${makeUid()}`,
+    signature: `merged_${makeUid()}`,
+    suggested: "",
+    canonical: "",
+    itemsByProject: { current: [], a: [], b: [], c: [] }
+  };
+
+  selected.forEach(group => {
     PROJECTS.forEach(({ key }) => {
-      group.itemsByProject[key].forEach(rawItem => {
-        state.mappings[makeRawKey(key, rawItem)] = group.canonical;
-      });
+      merged.itemsByProject[key].push(...(group.itemsByProject[key] || []));
     });
   });
 
+  normalizeGroupItems(merged);
+  merged.canonical = chooseBestCanonical(merged);
+  merged.suggested = merged.canonical;
+
+  state.mappingGroups = [...remain, merged].sort((a, b) => a.canonical.localeCompare(b.canonical, "ko"));
+  state.selectedGroupIds.clear();
+  state.selectedSplitItems.clear();
+
+  rebuildMappingsFromGroups();
+  populateCanonicalDatalist();
   renderMappingGroupList();
-  dom.mappingStatus.textContent = "유사 아이템 그룹 기준으로 통일명을 자동 채웠습니다.";
+
+  dom.mappingStatus.textContent = `선택한 ${selected.length}개 그룹을 병합했습니다.`;
+});
+
+dom.btnSplitSelected.addEventListener("click", () => {
+  if (!state.selectedSplitItems.size) {
+    dom.mappingStatus.textContent = "분리할 아이템을 먼저 체크해 주세요.";
+    return;
+  }
+
+  const newGroups = [];
+  const touchedGroupIds = new Set();
+
+  for (const splitKey of [...state.selectedSplitItems]) {
+    const [groupId, projectKey, item] = splitKey.split("::");
+    const group = state.mappingGroups.find(g => g.groupId === groupId);
+    if (!group) continue;
+
+    const idx = group.itemsByProject[projectKey].indexOf(item);
+    if (idx === -1) continue;
+
+    group.itemsByProject[projectKey].splice(idx, 1);
+    touchedGroupIds.add(groupId);
+
+    newGroups.push({
+      groupId: `grp_${makeUid()}`,
+      signature: `split_${makeUid()}`,
+      suggested: suggestCanonicalName(item),
+      canonical: suggestCanonicalName(item),
+      itemsByProject: {
+        current: [],
+        a: [],
+        b: [],
+        c: []
+      }
+    });
+
+    newGroups[newGroups.length - 1].itemsByProject[projectKey].push(item);
+  }
+
+  state.mappingGroups.forEach(group => {
+    if (touchedGroupIds.has(group.groupId)) {
+      normalizeGroupItems(group);
+      const totalCount = PROJECTS.reduce((sum, { key }) => sum + group.itemsByProject[key].length, 0);
+      if (totalCount > 0) {
+        group.canonical = chooseBestCanonical(group);
+      }
+    }
+  });
+
+  state.mappingGroups = state.mappingGroups.filter(group => {
+    const totalCount = PROJECTS.reduce((sum, { key }) => sum + group.itemsByProject[key].length, 0);
+    return totalCount > 0;
+  });
+
+  newGroups.forEach(group => {
+    normalizeGroupItems(group);
+    state.mappingGroups.push(group);
+  });
+
+  state.mappingGroups.sort((a, b) => a.canonical.localeCompare(b.canonical, "ko"));
+  state.selectedGroupIds.clear();
+  state.selectedSplitItems.clear();
+
+  rebuildMappingsFromGroups();
+  populateCanonicalDatalist();
+  renderMappingGroupList();
+
+  dom.mappingStatus.textContent = `선택한 ${newGroups.length}개 아이템을 개별 그룹으로 분리했습니다.`;
 });
 
 dom.btnApplyMapping.addEventListener("click", () => {
@@ -524,15 +679,12 @@ dom.btnApplyMapping.addEventListener("click", () => {
     if (!group.canonical || !group.canonical.trim()) {
       group.canonical = chooseBestCanonical(group);
     }
-    PROJECTS.forEach(({ key }) => {
-      group.itemsByProject[key].forEach(rawItem => {
-        state.mappings[makeRawKey(key, rawItem)] = group.canonical;
-      });
-    });
   });
 
-  state.mappedReady = true;
+  rebuildMappingsFromGroups();
   populateCanonicalDatalist();
+  state.mappedReady = true;
+
   populateDongFilter();
   renderSummaryCards();
   renderCompareCards();
@@ -566,10 +718,12 @@ dom.btnRenderCompare.addEventListener("click", () => {
   renderSummaryCards();
   renderCompareCards();
 });
+
 dom.filterDong.addEventListener("change", () => {
   renderSummaryCards();
   renderCompareCards();
 });
+
 dom.filterItem.addEventListener("input", renderCompareCards);
 dom.filterMode.addEventListener("change", renderCompareCards);
 
@@ -719,8 +873,7 @@ function renderCompareCards() {
 
 function renderCompareCard(item, floors, viewData, ratioMode) {
   const values = viewData.items[item];
-
-  let ratioValues = floors.map(f => values[f]?.ratio).filter(v => typeof v === "number");
+  const ratioValues = floors.map(f => values[f]?.ratio).filter(v => typeof v === "number");
   const ratioAvg = ratioValues.length ? average(ratioValues) : null;
 
   return `
@@ -888,4 +1041,8 @@ function escapeHtml(str) {
 
 function escapeHtmlAttr(str) {
   return escapeHtml(str).replaceAll("`", "&#96;");
+}
+
+function makeUid() {
+  return Math.random().toString(36).slice(2, 10);
 }
