@@ -104,11 +104,11 @@
           <div class="panel__head">
             <div>
               <h2>2. 아이템 통일 설정</h2>
-              <p>유사한 아이템끼리 그룹화한 뒤 병합/분리하여 최종 통일 아이템명을 설정합니다.</p>
+              <p>유사한 아이템끼리 그룹화한 뒤 병합/분리하여 최종 통일 아이템명과 중분류를 설정합니다.</p>
             </div>
             <div class="toolbar">
               <input type="text" id="mapping-search" class="input" placeholder="아이템 그룹 검색" />
-              <button id="btn-autofill" class="btn btn-secondary">자동 통일명 채우기</button>
+              <button id="btn-autofill" class="btn btn-secondary">자동 채우기</button>
               <button id="btn-merge-groups" class="btn btn-secondary">선택 그룹 병합</button>
               <button id="btn-split-selected" class="btn btn-secondary">선택 아이템 분리</button>
               <button id="btn-apply-mapping" class="btn btn-primary">통일명 적용</button>
@@ -122,6 +122,7 @@
             <div class="guide-chip">C 프로젝트</div>
             <div class="guide-chip">그룹 선택</div>
             <div class="guide-chip guide-chip--accent">통일 아이템명</div>
+            <div class="guide-chip guide-chip--accent">중분류</div>
           </div>
 
           <div id="mapping-group-list" class="mapping-group-list"></div>
@@ -141,6 +142,13 @@
             </div>
             <div class="toolbar toolbar-wrap">
               <select id="filter-dong" class="input"></select>
+              <select id="filter-category" class="input">
+                <option value="all">중분류 전체</option>
+                <option value="콘크리트">콘크리트</option>
+                <option value="거푸집">거푸집</option>
+                <option value="철근">철근</option>
+                <option value="기타">기타</option>
+              </select>
               <input type="text" id="filter-item" class="input" placeholder="아이템 검색" />
               <select id="filter-mode" class="input">
                 <option value="all">전체 보기</option>
@@ -151,6 +159,14 @@
           </div>
 
           <div class="summary-cards" id="summary-cards"></div>
+
+          <div class="panel-mini">
+            <div class="panel-mini__head">
+              <h3>층별 콘크리트 총합 / 철근 총합 비율</h3>
+            </div>
+            <div id="floor-ratio-board" class="floor-ratio-board"></div>
+          </div>
+
           <div id="compare-card-list" class="compare-card-list"></div>
 
           <div id="compare-status" class="status-box"></div>
