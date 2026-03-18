@@ -1,55 +1,49 @@
 "use strict";
 
 const PROJECTS = [
-  { key: "current", name: "현재 프로젝트" },
-  { key: "a", name: "A 프로젝트" },
-  { key: "b", name: "B 프로젝트" },
-  { key: "c", name: "C 프로젝트" }
+  { key: "current", name: "현재" }, { key: "a", name: "유사A" }, 
+  { key: "b", name: "유사B" }, { key: "c", name: "유사C" }
 ];
 const CATEGORIES = ["콘크리트", "거푸집", "철근", "잡/기타"];
 
 const state = {
   projects: { current: emptyState(), a: emptyState(), b: emptyState(), c: emptyState() },
   mappingGroups: [],
+  selectedGroupIds: new Set(),
+  selectedSplitKeys: new Set(),
   mappings: {},
   mappedReady: false
 };
 
-function emptyState() { return { files: [], rawItems: [], dongs: [], floors: [], data: {} }; }
+function emptyState() { return { files: [], rawItems: [], dongs: [], floors: [], data: {}, dongTypes: {} }; }
 
 const $ = (id) => document.getElementById(id);
 const dom = {
   tabs: document.querySelectorAll(".tab"),
   tabPanels: { upload: $("tab-upload"), mapping: $("tab-mapping"), compare: $("tab-compare") },
   fileInputs: { current: $("file-current"), a: $("file-a"), b: $("file-b"), c: $("file-c") },
-  fileNames: { current: $("name-current"), a: $("name-a"), b: $("name-b"), c: $("name-c") },
   fileLists: { current: $("list-current"), a: $("list-a"), b: $("list-b"), c: $("list-c") },
   btnParse: $("btn-parse"),
-  uploadStatus: $("upload-status"),
-  mappingSearch: $("mapping-search"),
-  btnApplyMapping: $("btn-apply-mapping"),
   mappingGroupList: $("mapping-group-list"),
   filterDong: $("filter-dong"),
   filterCategory: $("filter-category"),
-  filterItem: $("filter-item"),
+  filterType: $("filter-type"),
   compareCardList: $("compare-card-list")
 };
 
-/* 파일 업로드 시 칩 표시 */
-function renderFileUI(key) {
-  const files = state.projects[key].files;
-  dom.fileNames[key].textContent = files.length ? `${files.length}개 파일` : "선택된 파일 없음";
-  dom.fileLists[key].innerHTML = files.map(f => `<span class="file-chip">${f.name}</span>`).join("");
+/* 대분류 자동 판단 */
+function determineDongType(dongName) {
+  const n = dongName.toUpperCase();
+  if (n.includes("PIT")) return "PIT";
+  if (n.includes("주차장")) return "주차장";
+  if (n.includes("경비") || n.includes("사무소") || n.includes("상가") || n.includes("동")) {
+     if (/\d{3,4}동/.test(n)) return "APT";
+     return "부속동";
+  }
+  return "APT";
 }
 
-PROJECTS.forEach(({key}) => {
-  dom.fileInputs[key].onchange = (e) => {
-    state.projects[key].files = [...e.target.files];
-    renderFileUI(key);
-  };
-});
-
-/* 자동 분류 */
+/* 중분류 자동 판단 */
 function determineCategory(name) {
   const s = String(name).toUpperCase();
   if (s.includes("H") || s.includes("D")) return "철근";
@@ -58,18 +52,16 @@ function determineCategory(name) {
   return "잡/기타";
 }
 
-/* 탭 제어 */
-dom.tabs.forEach(tab => {
-  tab.onclick = () => {
-    dom.tabs.forEach(b => b.classList.remove("is-active"));
-    tab.classList.add("is-active");
-    Object.entries(dom.tabPanels).forEach(([k, p]) => p.classList.toggle("is-active", k === tab.dataset.tab));
+/* 파일 업로드 시각화 */
+PROJECTS.forEach(({key}) => {
+  dom.fileInputs[key].onchange = (e) => {
+    state.projects[key].files = [...e.target.files];
+    dom.fileLists[key].innerHTML = state.projects[key].files.map(f => `<span class="file-chip">${f.name}</span>`).join("");
   };
 });
 
-/* 파싱 */
+/* 엑셀 파싱 및 데이터 수집 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "분석 중...";
   for (const {key} of PROJECTS) {
     const pState = emptyState();
     for (const file of state.projects[key].files) {
@@ -77,20 +69,17 @@ dom.btnParse.onclick = async () => {
       const wb = XLSX.read(buffer, { type: "array" });
       wb.SheetNames.forEach(sn => {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-        const parsed = parseSheet(rows);
-        mergeData(pState, parsed);
+        parseSheet(rows, pState);
       });
     }
     state.projects[key] = pState;
   }
-  buildGroups();
-  renderGroups();
-  dom.uploadStatus.textContent = "분석 완료!";
+  autoGroup();
+  renderMapping();
   dom.tabs[1].click();
 };
 
-function parseSheet(rows) {
-  const res = emptyState();
+function parseSheet(rows, pState) {
   let dong = "", floor = "", prevF = null, sameCnt = 0;
   const r3 = rows[2] || [], r4 = rows[3] || [];
   for (let r = 4; r < rows.length; r++) {
@@ -98,14 +87,18 @@ function parseSheet(rows) {
     const m = txt.match(/\[([^\]]+)\]/);
     if (m) {
       dong = m[1].trim();
-      if (!res.dongs.includes(dong)) res.dongs.push(dong);
-      res.data[dong] = {}; floor = ""; sameCnt = 0; continue;
+      if (!pState.dongs.includes(dong)) {
+        pState.dongs.push(dong);
+        pState.dongTypes[dong] = determineDongType(dong); // 대분류 저장
+      }
+      pState.data[dong] = pState.data[dong] || {};
+      floor = ""; sameCnt = 0; continue;
     }
     if (!dong) continue;
     const fRaw = String(rows[r][0]).trim();
     if (fRaw !== "") {
       floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
-      if (!res.floors.includes(floor)) res.floors.push(floor);
+      if (!pState.floors.includes(floor)) pState.floors.push(floor);
       sameCnt = (prevF === floor) ? sameCnt + 1 : 1;
       prevF = floor;
     } else if (floor) sameCnt++;
@@ -114,30 +107,15 @@ function parseSheet(rows) {
       const item = String(head[c] || "").trim();
       const val = parseFloat(String(rows[r][c]).replace(/,/g, ""));
       if (!item || isNaN(val)) continue;
-      if (!res.rawItems.includes(item)) res.rawItems.push(item);
-      if (!res.data[dong][item]) res.data[dong][item] = {};
-      res.data[dong][item][floor] = (res.data[dong][item][floor] || 0) + val;
-    }
-  }
-  return res;
-}
-
-function mergeData(target, source) {
-  source.rawItems.forEach(i => !target.rawItems.includes(i) && target.rawItems.push(i));
-  source.dongs.forEach(d => !target.dongs.includes(d) && target.dongs.push(d));
-  source.floors.forEach(f => !target.floors.includes(f) && target.floors.push(f));
-  for (const d in source.data) {
-    if (!target.data[d]) target.data[d] = {};
-    for (const i in source.data[d]) {
-      if (!target.data[d][i]) target.data[d][i] = {};
-      for (const f in source.data[d][i]) {
-        target.data[d][i][f] = (target.data[d][i][f] || 0) + source.data[d][i][f];
-      }
+      if (!pState.rawItems.includes(item)) pState.rawItems.push(item);
+      pState.data[dong][item] = pState.data[dong][item] || {};
+      pState.data[dong][item][floor] = (pState.data[dong][item][floor] || 0) + val;
     }
   }
 }
 
-function buildGroups() {
+/* 그룹화 및 매핑 UI (편집 도구 포함) */
+function autoGroup() {
   const grouped = new Map();
   PROJECTS.forEach(p => {
     state.projects[p.key].rawItems.forEach(raw => {
@@ -157,62 +135,126 @@ function buildGroups() {
   state.mappingGroups = [...grouped.values()];
 }
 
-function renderGroups() {
-  const q = dom.mappingSearch.value.toLowerCase();
+function renderMapping() {
+  const q = $("mapping-search").value.toLowerCase();
   dom.mappingGroupList.innerHTML = state.mappingGroups
     .filter(g => g.canonical.toLowerCase().includes(q))
     .map(g => `
-      <div class="mapping-group-card">
+      <div class="mapping-group-card ${state.selectedGroupIds.has(g.groupId) ? 'is-selected' : ''}">
         <div class="mapping-group-card__top">
-          <div class="mapping-group-card__left"><strong>${g.canonical}</strong></div>
+          <div class="mapping-group-card__left">
+            <input type="checkbox" onchange="toggleGroupSelection('${g.groupId}', this.checked)" ${state.selectedGroupIds.has(g.groupId) ? 'checked' : ''} />
+            <input class="group-canonical-input" value="${g.canonical}" oninput="updateGroupName('${g.groupId}', this.value)" />
+          </div>
           <div class="mapping-group-card__right">
-            <select onchange="updateCat('${g.groupId}', this.value)">
+            <select onchange="updateGroupCat('${g.groupId}', this.value)">
               ${CATEGORIES.map(c => `<option value="${c}" ${g.category === c ? 'selected' : ''}>${c}</option>`).join("")}
             </select>
           </div>
         </div>
         <div class="mapping-project-grid">
           ${PROJECTS.map(p => `
-            <div class="mapping-project-col ${p.key}">
+            <div class="mapping-project-col">
               <div class="mapping-project-col__head">${p.name}</div>
-              <div class="mapping-project-col__body">${g.items[p.key].join(", ") || '-'}</div>
-            </div>`).join("")}
+              <div class="mapping-project-col__body">
+                ${g.items[p.key].map(i => `
+                  <label class="mapping-item-chip">
+                    <input type="checkbox" onchange="toggleItemSelection('${g.groupId}','${p.key}','${i}', this.checked)" />
+                    <span>${i}</span>
+                  </label>
+                `).join("")}
+              </div>
+            </div>
+          `).join("")}
         </div>
-      </div>`).join("");
+      </div>
+    `).join("");
 }
 
-window.updateCat = (id, val) => { state.mappingGroups.find(g => g.groupId === id).category = val; };
-dom.mappingSearch.oninput = renderGroups;
+/* 편집 핸들러 */
+window.toggleGroupSelection = (id, checked) => { checked ? state.selectedGroupIds.add(id) : state.selectedGroupIds.delete(id); renderMapping(); };
+window.updateGroupName = (id, val) => { state.mappingGroups.find(x => x.groupId === id).canonical = val; };
+window.updateGroupCat = (id, val) => { state.mappingGroups.find(x => x.groupId === id).category = val; };
+window.toggleItemSelection = (gid, pkey, item, checked) => {
+  const key = `${gid}|${pkey}|${item}`;
+  checked ? state.selectedSplitKeys.add(key) : state.selectedSplitKeys.delete(key);
+};
 
-dom.btnApplyMapping.onclick = () => {
+/* 병합/분리 기능 */
+$("btn-merge-groups").onclick = () => {
+  if (state.selectedGroupIds.size < 2) return alert("병합할 그룹을 2개 이상 선택하세요.");
+  const selected = state.mappingGroups.filter(g => state.selectedGroupIds.has(g.groupId));
+  const newGroup = {
+    groupId: Math.random().toString(36).substr(2, 9),
+    canonical: selected[0].canonical,
+    category: selected[0].category,
+    items: { current: [], a: [], b: [], c: [] }
+  };
+  selected.forEach(g => PROJECTS.forEach(p => newGroup.items[p.key].push(...g.items[p.key])));
+  state.mappingGroups = state.mappingGroups.filter(g => !state.selectedGroupIds.has(g.groupId));
+  state.mappingGroups.push(newGroup);
+  state.selectedGroupIds.clear();
+  renderMapping();
+};
+
+$("btn-split-items").onclick = () => {
+  if (state.selectedSplitKeys.size === 0) return alert("분리할 아이템을 체크하세요.");
+  state.selectedSplitKeys.forEach(key => {
+    const [gid, pkey, item] = key.split("|");
+    const group = state.mappingGroups.find(g => g.groupId === gid);
+    group.items[pkey] = group.items[pkey].filter(i => i !== item);
+    state.mappingGroups.push({
+      groupId: Math.random().toString(36).substr(2, 9),
+      canonical: item,
+      category: group.category,
+      items: { current: [], a: [], b: [], c: [] }
+    });
+    state.mappingGroups[state.mappingGroups.length-1].items[pkey].push(item);
+  });
+  state.selectedSplitKeys.clear();
+  renderMapping();
+};
+
+/* 최종 적용 및 비교표 */
+$("btn-apply-mapping").onclick = () => {
   state.mappings = {};
   state.mappingGroups.forEach(g => {
-    PROJECTS.forEach(p => { g.items[p.key].forEach(raw => {
+    PROJECTS.forEach(p => g.items[p.key].forEach(raw => {
       state.mappings[`${p.key}::${raw}`] = { canonical: g.canonical, category: g.category };
-    }); });
+    }));
   });
   state.mappedReady = true;
-  const dongs = [...new Set(PROJECTS.flatMap(p => state.projects[p.key].dongs))].sort();
-  dom.filterDong.innerHTML = dongs.map(d => `<option value="${d}">${d}</option>`).join("");
-  renderCompare();
+  updateDongFilters();
   dom.tabs[2].click();
 };
 
-[dom.filterDong, dom.filterCategory].forEach(el => el.onchange = renderCompare);
-dom.filterItem.oninput = renderCompare;
+function updateDongFilters() {
+  const type = dom.filterType.value;
+  const dongs = [];
+  PROJECTS.forEach(p => {
+    state.projects[p.key].dongs.forEach(d => {
+      if ((type === "all" || state.projects[p.key].dongTypes[d] === type) && !dongs.includes(d)) dongs.push(d);
+    });
+  });
+  dom.filterDong.innerHTML = dongs.sort().map(d => `<option value="${d}">${d}</option>`).join("");
+  renderCompare();
+}
+
+dom.filterType.onchange = updateDongFilters;
+dom.filterDong.onchange = renderCompare;
+dom.filterCategory.onchange = renderCompare;
 
 function renderCompare() {
   if (!state.mappedReady) return;
   const dong = dom.filterDong.value;
-  const cat = dom.filterCategory.value;
-  const keyw = dom.filterItem.value.toLowerCase();
-
+  const catFilter = dom.filterCategory.value;
   const unified = { floors: [], items: {} };
+
   PROJECTS.forEach(p => {
     const dData = state.projects[p.key].data[dong] || {};
     for (const raw in dData) {
       const m = state.mappings[`${p.key}::${raw}`];
-      if (!m || (cat !== 'all' && m.category !== cat) || (keyw && !m.canonical.toLowerCase().includes(keyw))) continue;
+      if (!m || (catFilter !== "all" && m.category !== catFilter)) continue;
       if (!unified.items[m.canonical]) unified.items[m.canonical] = {};
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
@@ -228,29 +270,27 @@ function renderCompare() {
     return `
       <div class="compare-card">
         <div class="compare-card__head"><strong>${name}</strong></div>
-        <div class="compare-card__body">
-          <table class="compare-matrix">
-            <thead><tr><th>구분</th>${unified.floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
-            <tbody>
-              <tr class="row-current"><td>현재 프로젝트</td>${unified.floors.map(f=>`<td>${(vals[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr><td>유사 A</td>${unified.floors.map(f=>`<td>${(vals[f]?.a||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr><td>유사 B</td>${unified.floors.map(f=>`<td>${(vals[f]?.b||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr><td>유사 C</td>${unified.floors.map(f=>`<td>${(vals[f]?.c||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr style="background:#f4f7fd; font-weight:bold;"><td>유사 평균</td>${unified.floors.map(f=>{
-                const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
-                return `<td>${avg.toLocaleString(undefined, {maximumFractionDigits:1})}</td>`;
-              }).join("")}</tr>
-              <tr style="font-weight:bold;"><td>비율(%)</td>${unified.floors.map(f=>{
-                const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
-                const r = avg > 0 ? (vals[f].current / avg * 100) : 0;
-                let cls = (r >= 110) ? "ratio-high" : (r > 0 && r <= 90) ? "ratio-low" : "";
-                return `<td class="${cls}">${r ? r.toFixed(1)+'%' : '-'}</td>`;
-              }).join("")}</tr>
-            </tbody>
-          </table>
-        </div>
+        <table class="compare-matrix">
+          <thead><tr><th>구분</th>${unified.floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
+          <tbody>
+            <tr class="row-current"><td>현재</td>${unified.floors.map(f=>`<td>${(vals[f]?.current||0).toLocaleString()}</td>`).join("")}</tr>
+            <tr><td>유사A</td>${unified.floors.map(f=>`<td>${(vals[f]?.a||0).toLocaleString()}</td>`).join("")}</tr>
+            <tr><td>유사B</td>${unified.floors.map(f=>`<td>${(vals[f]?.b||0).toLocaleString()}</td>`).join("")}</tr>
+            <tr><td>유사C</td>${unified.floors.map(f=>`<td>${(vals[f]?.c||0).toLocaleString()}</td>`).join("")}</tr>
+            <tr style="background:#f4f7fd; font-weight:bold;"><td>유사평균</td>${unified.floors.map(f=>{
+              const avg = ((vals[f]?.a||0) + (vals[f]?.b||0) + (vals[f]?.c||0)) / 3;
+              return `<td>${avg.toLocaleString(undefined, {maximumFractionDigits:1})}</td>`;
+            }).join("")}</tr>
+          </tbody>
+        </table>
       </div>`;
-  }).join("") || "검색 결과 없음";
+  }).join("") || "데이터 없음";
 }
 
-$ ("btn-reset").onclick = () => location.reload();
+dom.tabs.forEach(tab => {
+  tab.onclick = () => {
+    dom.tabs.forEach(b => b.classList.remove("is-active"));
+    tab.classList.add("is-active");
+    Object.entries(dom.tabPanels).forEach(([k, p]) => p.classList.toggle("is-active", k === tab.dataset.tab));
+  };
+});
