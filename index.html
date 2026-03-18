@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>비교표 웹앱 (층별 집계)</title>
+  <title>비교표 웹앱 (층별 집계 모드)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,13 +13,13 @@
         <div>
           <h1>비교표 웹앱 (층별 집계 모드)</h1>
           <p class="hero__desc">
-            프로젝트별 층별 집계표를 업로드하면 2줄씩 짝지어 데이터를 인식합니다.<br>
-            노란색(3행)은 첫 번째 줄, 주황색(4행)은 두 번째 줄의 수량과 매칭됩니다.
+            층별로 병합된 셀(1행: 3행 타이틀, 2행: 4행 타이틀)을 자동 매칭합니다.<br>
+            동(건물)과 층을 선택하여 개별 비교하거나, 원하는 동을 합산하여 비교할 수 있습니다.
           </p>
         </div>
         <div class="hero__meta">
-          <span class="badge">층별 데이터 2열 묶음 파싱</span>
-          <span class="badge">갑지 양식 엑셀 자동출력</span>
+          <span class="badge">층별 2행 묶음 파싱</span>
+          <span class="badge">선택 동 다중 합산 지원</span>
         </div>
       </div>
     </header>
@@ -27,43 +27,28 @@
     <main class="main-grid">
       <section class="panel upload-panel">
         <div class="panel__head">
-          <h2>1. 엑셀 파일 업로드</h2>
-          <p>현재 프로젝트 ~ C프로젝트까지 업로드합니다.</p>
+          <h2>1. 분석표B 업로드</h2>
+          <p>각 프로젝트 파일을 업로드합니다.</p>
         </div>
 
         <div class="upload-list">
           <div class="upload-card">
-            <div class="upload-card__top">
-              <strong>현재 프로젝트</strong>
-              <span>여러 파일 선택 가능</span>
-            </div>
+            <div class="upload-card__top"><strong>현재 프로젝트</strong><span>여러 파일 선택 가능</span></div>
             <input id="file-current" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-current-list">선택된 파일 없음</div>
           </div>
-
           <div class="upload-card">
-            <div class="upload-card__top">
-              <strong>A 프로젝트</strong>
-              <span>여러 파일 선택 가능</span>
-            </div>
+            <div class="upload-card__top"><strong>A 프로젝트</strong><span>여러 파일 선택 가능</span></div>
             <input id="file-a" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-a-list">선택된 파일 없음</div>
           </div>
-
           <div class="upload-card">
-            <div class="upload-card__top">
-              <strong>B 프로젝트</strong>
-              <span>여러 파일 선택 가능</span>
-            </div>
+            <div class="upload-card__top"><strong>B 프로젝트</strong><span>여러 파일 선택 가능</span></div>
             <input id="file-b" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-b-list">선택된 파일 없음</div>
           </div>
-
           <div class="upload-card">
-            <div class="upload-card__top">
-              <strong>C 프로젝트</strong>
-              <span>여러 파일 선택 가능</span>
-            </div>
+            <div class="upload-card__top"><strong>C 프로젝트</strong><span>여러 파일 선택 가능</span></div>
             <input id="file-c" type="file" accept=".xlsx,.xls" multiple />
             <div class="upload-files" id="file-c-list">선택된 파일 없음</div>
           </div>
@@ -71,7 +56,6 @@
 
         <div class="panel__head panel__head--sub">
           <h2>2. 명칭 처리 기준</h2>
-          <p>업로드 후 “명칭 추출”을 누르면 항목별 매핑을 지정합니다.</p>
         </div>
 
         <div class="actions">
@@ -88,18 +72,32 @@
 
       <section class="panel result-panel">
         <div class="panel__head">
-          <h2>비교표</h2>
-          <p>설정이 완료된 후 각 층별로 비교표가 계산됩니다. (탭을 눌러 층 변경)</p>
+          <h2>비교표 결과</h2>
+          <p>원하는 동과 층을 선택하거나, 여러 동을 합산하여 확인하세요.</p>
         </div>
 
-        <div class="legend" id="tab-container" style="gap: 8px; margin-bottom: 15px;">
+        <div id="controls-bar" style="margin-bottom: 15px; padding: 15px; background: #f8fbff; border-radius: 10px; border: 1px solid #dbeafe; display: none;">
+          <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 10px;">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <strong style="font-size: 14px;">건물(동) 선택:</strong>
+              <select id="select-building" class="map-include" style="min-width: 140px; padding: 6px; border-radius: 6px; border: 1px solid #97a3b9;"></select>
+            </label>
+            <label id="wrap-floor" style="display:flex; align-items:center; gap:8px;">
+              <strong style="font-size: 14px;">층 선택:</strong>
+              <select id="select-floor" class="map-include" style="min-width: 140px; padding: 6px; border-radius: 6px; border: 1px solid #97a3b9;"></select>
+            </label>
+          </div>
+          <div id="sum-options" style="display: none; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
+            <strong style="font-size: 14px; color: #1d4ed8;">☑ 합산할 동 선택 (선택한 동들의 '합계' 층만 묶어서 합산합니다)</strong>
+            <div id="sum-checkboxes" style="display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap;"></div>
+          </div>
         </div>
 
         <div class="table-wrap">
           <table class="compare-table">
             <thead>
               <tr>
-                <th>구분(층)</th>
+                <th>구분</th>
                 <th>아이템구분</th>
                 <th>품명</th>
                 <th>규격</th>
@@ -127,10 +125,7 @@
     <div class="modal__backdrop" id="mapping-backdrop"></div>
     <div class="modal__dialog">
       <div class="modal__head">
-        <div>
-          <h3>명칭 처리 기준 설정</h3>
-          <p>명칭별로 비교표 반영 여부, 분류, 아이템구분을 지정하세요.</p>
-        </div>
+        <div><h3>명칭 처리 기준 설정</h3></div>
         <button id="btn-close-mapping" class="modal__close" type="button">✕</button>
       </div>
       <div class="mapping-toolbar">
@@ -139,11 +134,7 @@
       </div>
       <div class="mapping-table-wrap">
         <table class="mapping-table">
-          <thead>
-            <tr>
-              <th>원본명칭</th><th>반영여부</th><th>분류</th><th>아이템구분</th><th>제안</th>
-            </tr>
-          </thead>
+          <thead><tr><th>원본명칭</th><th>반영여부</th><th>분류</th><th>아이템구분</th><th>제안</th></tr></thead>
           <tbody id="mapping-body"></tbody>
         </table>
       </div>
