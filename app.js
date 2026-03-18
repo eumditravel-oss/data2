@@ -35,93 +35,94 @@ function predictCategory(name) {
   return "잡/기타";
 }
 
-/* 데이터 파싱 메인 */
 dom.btnParse.onclick = async () => {
-  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다...";
+  dom.uploadStatus.textContent = "데이터를 정밀 분석 중입니다 (4행 헤더 포함)...";
   try {
     for (const p of PROJECTS) {
       const files = Array.from($(`file-${p.key}`).files);
       if(files.length === 0) continue;
       const pState = state.projects[p.key];
       for (const file of files) {
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
-        wb.SheetNames.forEach(sn => {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-          parseSheetData(rows, pState);
-        });
+        const rows = XLSX.utils.sheet_to_json(wb(await file.arrayBuffer()), { header: 1, defval: "" });
+        parseSheetData(rows, pState);
       }
     }
     initDongMapping(); buildItemGroups(); renderDongUI(); renderItemUI();
     dom.uploadStatus.textContent = "분석 완료!";
     dom.tabs[1].click();
-  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; console.error(e); }
+  } catch(e) { dom.uploadStatus.textContent = "오류: " + e.message; }
 };
 
-/* 엑셀 구조 정밀 파싱 */
+async function wb(buffer) {
+  const readWb = XLSX.read(buffer, { type: 'array' });
+  return readWb.Sheets[readWb.SheetNames[0]];
+}
+
+/* 엑셀 구조 정밀 파싱 (2행 1세트 로직 강화) */
 function parseSheetData(rows, pState) {
   let currentDong = "";
-  const row3 = rows[2] || []; // 콘크리트 강도 등 (예: 27MPA)
-  const row4 = rows[3] || []; // 거푸집/철근 등 (예: 3회, H10)
+  let lastFloor = "";
+  const row3 = rows[2] || []; // 3행 헤더: 콘크리트 강도 등
+  const row4 = rows[3] || []; // 4행 헤더: 거푸집 회수, 철근 규격 등
 
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
 
     const rowText = row.join("|");
-    // 동 명칭 추출: [CURRENT] 같은 내부 값 제외, 실제 동 이름만 추출
+    // 동 명칭 감지
     const dongMatch = rowText.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
     if (dongMatch) {
       currentDong = dongMatch[1].trim();
       if (!pState.dongs.includes(currentDong)) pState.dongs.push(currentDong);
       pState.data[currentDong] = pState.data[currentDong] || {};
+      lastFloor = ""; // 동이 바뀌면 층 초기화
       continue;
     }
     if (!currentDong) continue;
 
-    // 층 추출
+    // 층 정보 확인 (A열)
     const fRaw = String(row[0]).trim();
-    if (fRaw === "" || fRaw.includes("층") || fRaw.includes("계") || fRaw.includes("공사명")) continue;
-    
-    let floor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
-    if (!pState.floors.includes(floor)) pState.floors.push(floor);
+    if (fRaw.includes("계") || fRaw.includes("공사명")) continue;
 
-    // 열 데이터 수집
+    // 만약 층 이름이 있으면 갱신, 없으면 이전 층 이름 유지 (2행 1세트 처리를 위해)
+    if (fRaw !== "" && fRaw !== "층") {
+      lastFloor = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
+      if (!pState.floors.includes(lastFloor)) pState.floors.push(lastFloor);
+    }
+    
+    if (!lastFloor) continue;
+
+    // 데이터 수집 (B열부터 끝까지)
     for (let c = 1; c < row.length; c++) {
       const val = parseFloat(String(row[c]).replace(/,/g, ""));
       if (isNaN(val) || val === 0) continue;
 
-      // 상하 헤더 분리: 3행과 4행 중 실제 값이 존재하는 헤더를 매칭
-      // 엑셀 소스 상 같은 열에 데이터가 위아래로 나뉘어 있는 특성 반영
+      // 핵심 로직: 층 이름이 있는 행은 3행 헤더 매칭, 없는 행(두 번째 행)은 4행 헤더 매칭
       let itemName = "";
-      // 수량 행(동일 층의 첫 번째 행)인지 판별 로직 (보통 층 이름이 있는 행)
-      // 엑셀 구조상 3행 헤더는 첫 번째 수량행, 4행 헤더는 두 번째 수량행과 매칭됨
       if (fRaw !== "") {
-        itemName = String(row3[c] || "").trim(); // 3행(콘크리트) 우선
+        itemName = String(row3[c] || "").trim(); // 3행 헤더 사용
       } else {
-        itemName = String(row4[c] || "").trim(); // 4행(거푸집/철근) 우선
+        itemName = String(row4[c] || "").trim(); // 4행 헤더 사용
       }
-      
-      // 만약 itemName이 비어있다면 보조 헤더 확인
-      if (!itemName) itemName = String(row3[c] || row4[c] || "").trim();
+
+      // 만약 itemName이 비어있으면 데이터는 있는데 헤더가 없는 경우이므로 스킵하거나 보조 확인
       if (!itemName) continue;
 
       if (!pState.rawItems.includes(itemName)) pState.rawItems.push(itemName);
       pState.data[currentDong][itemName] = pState.data[currentDong][itemName] || {};
-      
-      // 실제 층 데이터는 fRaw가 있는 행에 귀속 (없으면 바로 직전 층 이름 사용)
-      const targetFloor = floor;
-      pState.data[currentDong][itemName][targetFloor] = (pState.data[currentDong][itemName][targetFloor] || 0) + val;
+      pState.data[currentDong][itemName][lastFloor] = (pState.data[currentDong][itemName][lastFloor] || 0) + val;
     }
   }
 }
 
-/* 동 명칭 관리 */
+/* 이하 기능(DongMapping, renderUI, renderCompare 등)은 기존과 동일하되
+   데이터 유실을 막기 위해 전체 구조를 유지합니다. */
+
 function initDongMapping() {
   PROJECTS.forEach(p => state.projects[p.key].dongs.forEach(d => {
     const key = `${p.key}::${d}`;
-    const clean = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
-    state.dongMap[key] = clean;
+    state.dongMap[key] = d.replace(/1BL_|2BL_|_PIT|동/g, "").trim();
   }));
 }
 
@@ -184,7 +185,6 @@ function applyNav(el) {
   };
 }
 
-/* 최종 비교표 렌더링 */
 $("btn-apply-all").onclick = () => {
   state.mappedReady = true;
   const stdDongs = [...new Set(Object.values(state.dongMap))].sort();
@@ -209,7 +209,6 @@ function renderCompare() {
     for (const raw in dData) {
       const group = state.mappingGroups.find(x => x.items[p.key].includes(raw));
       if (!group || (catFilter !== 'all' && group.category !== catFilter)) continue;
-      
       unified.items[group.canonical] = unified.items[group.canonical] || { cat: group.category };
       for (const f in dData[raw]) {
         if (!unified.floors.includes(f)) unified.floors.push(f);
@@ -220,7 +219,6 @@ function renderCompare() {
   }));
 
   unified.floors.sort((x,y) => (parseInt(x)||0) - (parseInt(y)||0));
-
   renderRatioBoard(unified);
   dom.compareList.innerHTML = Object.keys(unified.items).map(name => {
     const v = unified.items[name];
@@ -235,7 +233,7 @@ function renderCompare() {
               <tr><td>유사 A</td>${unified.floors.map(f=>`<td>${(v[f]?.a||0).toLocaleString()}</td>`).join("")}</tr>
               <tr><td>유사 B</td>${unified.floors.map(f=>`<td>${(v[f]?.b||0).toLocaleString()}</td>`).join("")}</tr>
               <tr><td>유사 C</td>${unified.floors.map(f=>`<td>${(v[f]?.c||0).toLocaleString()}</td>`).join("")}</tr>
-              <tr style="background:#f4f7fd; font-weight:bold;"><td>평균(ABC)</td>${unified.floors.map(f=>{
+              <tr style="background:#f4f7fd; font-weight:bold;"><td>평균</td>${unified.floors.map(f=>{
                 const avg = ((v[f]?.a||0) + (v[f]?.b||0) + (v[f]?.c||0)) / 3;
                 return `<td>${avg.toLocaleString(undefined,{maximumFractionDigits:1})}</td>`;
               }).join("")}</tr>
@@ -248,21 +246,14 @@ function renderCompare() {
 
 function renderRatioBoard(unified) {
   const floors = unified.floors;
-  const pKeys = ['current', 'a', 'b', 'c'];
-  const data = pKeys.reduce((acc, k) => { acc[k] = {}; return acc; }, {});
-
+  const data = { current:{}, a:{}, b:{}, c:{} };
   floors.forEach(f => {
-    const getSum = (pKey, cat) => Object.keys(unified.items)
-      .filter(name => unified.items[name].cat === cat)
-      .reduce((sum, name) => sum + (unified.items[name][f]?.[pKey] || 0), 0);
-
-    pKeys.forEach(p => {
-      const conc = getSum(p, '콘크리트');
-      const rebar = getSum(p, '철근');
+    ['current','a','b','c'].forEach(p => {
+      const conc = Object.keys(unified.items).filter(n=>unified.items[n].cat==='콘크리트').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
+      const rebar = Object.keys(unified.items).filter(n=>unified.items[n].cat==='철근').reduce((s,n)=>s+(unified.items[n][f]?.[p]||0),0);
       data[p][f] = conc > 0 ? (rebar / conc).toFixed(4) : "0.0000";
     });
   });
-
   dom.ratioBoard.innerHTML = `
     <table class="compare-matrix">
       <thead><tr><th>구분 (Ton/m³)</th>${floors.map(f=>`<th>${f}</th>`).join("")}</tr></thead>
