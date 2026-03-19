@@ -14,7 +14,7 @@
     <header class="topbar">
       <div class="topbar__title">
         <h1>QS 프로젝트 통합 데이터 관리</h1>
-        <p>전체 동별 수량 집계 및 템플릿 기반 엑셀 리포트 생성 (소수점 3자리 및 템플릿 양식 완벽 적용)</p>
+        <p>전체 동별 수량 집계 및 템플릿 기반 엑셀 리포트 생성 (100% 양식 복제)</p>
       </div>
       <div class="topbar__actions">
         <button id="btn-reset" class="btn btn-ghost" onclick="location.reload()">초기화</button>
@@ -40,7 +40,7 @@
             </label>
             <div id="file-list" class="file-list"></div>
           </div>
-          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:24px; height:56px;">데이터 정밀 분석 시작</button>
+          <button id="btn-parse" class="btn btn-primary" style="width:100%; margin-top:24px; height:56px; font-size: 16px;">데이터 정밀 분석 시작</button>
           <div id="upload-status" class="status-box"></div>
         </div>
       </section>
@@ -74,7 +74,7 @@
               <label>조회 동 선택:</label>
               <select id="filter-dong" class="input" style="width:220px;"></select>
             </div>
-            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">양식 100% 동일 엑셀 다운로드</button>
+            <button id="btn-excel" class="btn btn-success" style="margin-left:auto;">템플릿 100% 동일 엑셀 다운로드</button>
           </div>
           <div class="excel-view-container">
             <table id="main-excel-table" class="excel-table">
