@@ -19,6 +19,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Prete
 .tab-panel.is-active { display: block; }
 
 .upload-box { border: 2px dashed var(--line); padding: 60px 20px; text-align: center; border-radius: var(--radius); background: #fbfcff; }
+.upload-box__icon { font-size: 48px; margin-bottom: 15px; }
+.filebox input { display: none; }
 .filebox__btn { padding: 12px 32px; background: #fff; border: 2px solid var(--primary); color: var(--primary); border-radius: 10px; cursor: pointer; font-weight: 800; display: inline-block; }
 .file-chip { display: inline-block; padding: 6px 14px; background: var(--primary-weak); color: var(--primary); border-radius: 20px; font-size: 12px; margin: 5px; font-weight: 700; border: 1px solid var(--line); }
 
@@ -33,15 +35,27 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "Prete
 .col-edit { width: 250px; }
 .col-cat { width: 180px; }
 
+/* --- [수정된 부분] 엑셀 테이블 틀고정 설정 --- */
 .excel-view-container { overflow: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; max-height: 600px; }
 .excel-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 1000px; }
+
+/* 1. th 개별 고정이 아닌 thead 전체 그룹 고정으로 변경 */
+.excel-table thead { position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 0 var(--line); }
+
 .excel-table th, .excel-table td { border: 0.5px solid var(--line); padding: 12px 10px; text-align: center; white-space: nowrap; }
-.excel-table th { background: #f4f7fd; font-weight: 800; position: sticky; top: 0; z-index: 10; }
+
+/* 2. th에서 position: sticky 속성 제거, background-clip 추가로 스크롤 시 깨짐 방지 */
+.excel-table th { background: #f4f7fd; font-weight: 800; color: #445571; background-clip: padding-box; }
+
+.excel-table tr:hover td { background: #f9fbff; }
+.row-subtotal { background: #f1f3f5; font-weight: 800; }
 .row-ratio { background: #fff4e6 !important; font-weight: 800; color: var(--orange); }
+.col-total { background: #f8f9fa; font-weight: 800; color: var(--primary); }
 
 .btn { padding: 14px 24px; border-radius: 12px; border: none; font-weight: 800; cursor: pointer; transition: 0.2s; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-success { background: var(--success); color: #fff; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
+.toolbar { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
 .input { padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; outline: none; width: 100%; }
-.input:focus { border-color: var(--primary); }
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,94,255,0.1); }
