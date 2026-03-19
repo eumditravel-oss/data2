@@ -47,18 +47,21 @@
         <div class="panel">
           <div class="toolbar">
             <div class="toolbar__text">
-              <h3>항목 분류 설정</h3>
-              <p>철근(TON), 콘크리트(M3), 거푸집(M2) 분류가 정확한지 검토하세요.</p>
+              <h3>항목 분류 및 표준화</h3>
+              <p>추출된 아이템의 중분류를 검토하세요. (레미콘, 철근, 거푸집)</p>
             </div>
             <button id="btn-apply" class="btn btn-primary" style="margin-left:auto;">설정 적용 및 결과 생성</button>
           </div>
-          <div class="list-header">
-            <div style="width:60px; text-align:center;">번호</div>
-            <div style="flex:1; padding-left:15px;">원본 아이템 명칭</div>
-            <div style="width:250px;">표준화 명칭</div>
-            <div style="width:180px;">분류</div>
+          <div class="mapping-container">
+            <div class="list-header">
+              <div class="col-num">번호</div>
+              <div class="col-orig">원본 아이템 명칭</div>
+              <div class="col-edit">표준화 명칭</div>
+              <div class="col-cat">중분류</div>
+            </div>
+            <div id="mapping-list" class="mapping-list">
+              </div>
           </div>
-          <div id="mapping-list" class="mapping-list"></div>
         </div>
       </section>
 
