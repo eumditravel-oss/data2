@@ -8,6 +8,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+/* 층 정렬 로직 */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
@@ -28,9 +29,11 @@ function predictCategory(name) {
   return "잡/기타";
 }
 
+/* 분석 시작 */
 $("btn-parse").onclick = async () => {
   const files = Array.from($('file-main').files);
-  if (files.length === 0) return alert("파일을 선택해주세요.");
+  if (files.length === 0) return alert("파일을 먼저 선택해주세요.");
+  
   state.rawItems = []; state.dongs = []; state.floors = []; state.data = {};
 
   for (const file of files) {
@@ -43,23 +46,48 @@ $("btn-parse").onclick = async () => {
 function parseRows(rows) {
   let curDong = "", lastF = "";
   const r3 = rows[2] || [], r4 = rows[3] || [];
+  
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
-    const m = row.join("|").match(/동\s*명\s*:\s*\[([^\]]+)\]/);
-    if (m) { curDong = m[1].trim(); if(!state.dongs.includes(curDong)) state.dongs.push(curDong); state.data[curDong] = {}; lastF = ""; continue; }
+    const txt = row.join("|");
+    
+    // 1. 동 명칭 감지
+    const m = txt.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
+    if (m) { 
+      curDong = m[1].trim(); 
+      if(!state.dongs.includes(curDong)) state.dongs.push(curDong); 
+      state.data[curDong] = state.data[curDong] || {}; 
+      lastF = ""; // 동이 바뀌면 층 초기화
+      continue; 
+    }
     if (!curDong) continue;
+
+    // 2. 층 명칭 및 소계/합계 감지 (버그 수정 핵심 파트)
     const fRaw = String(row[0]).trim();
-    if (fRaw !== "" && !fRaw.includes("계") && !fRaw.includes("층")) {
+    
+    // 소계, 합계, 공사명 등 불필요한 행이 감지되면 lastF를 비우고 해당 행을 즉시 건너뜀
+    if (fRaw === "층" || fRaw.includes("계") || fRaw.includes("합") || fRaw.includes("공사명")) {
+      lastF = ""; 
+      continue; 
+    }
+
+    if (fRaw !== "") {
       lastF = /^\d+$/.test(fRaw) ? fRaw + "F" : fRaw;
       if (!state.floors.includes(lastF)) state.floors.push(lastF);
     }
+    
+    // lastF가 비어있다면 (즉, 소계 데이터의 2번째 줄 등) 계산하지 않고 패스
     if (!lastF) continue;
+
+    // 3. 수량 데이터 수집
     for (let c = 1; c < row.length; c++) {
       const val = parseFloat(String(row[c]).replace(/,/g, ""));
       if (isNaN(val) || val === 0) continue;
+      
       let name = (fRaw !== "") ? String(r3[c] || "").trim() : String(r4[c] || "").trim();
       if (!name) name = String(r3[c] || r4[c] || "").trim();
       if (!name) continue;
+      
       if (!state.rawItems.includes(name)) state.rawItems.push(name);
       state.data[curDong][name] = state.data[curDong][name] || {};
       state.data[curDong][name][lastF] = (state.data[curDong][name][lastF] || 0) + val;
@@ -74,18 +102,15 @@ function buildMapping() {
 function renderMapping() {
   $("mapping-list").innerHTML = state.mappings.map(m => `
     <div class="item-row">
-      <div class="col-num">${m.id + 1}</div>
-      <div class="col-orig">${m.original}</div>
-      <div class="col-edit"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id},'canonical',this.value)"/></div>
-      <div class="col-cat">
-        <select class="input" onchange="updateMapping(${m.id},'category',this.value)">
-          ${CATEGORIES.map(c=>`<option value="${c}" ${m.category===c?'selected':''}>${c}</option>`).join("")}
-        </select>
-      </div>
+      <div style="width:60px; text-align:center; color:#888; font-weight:800;">${m.id + 1}</div>
+      <div style="flex:1; font-weight:700;">${m.original}</div>
+      <div style="width:250px;"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id},'canonical',this.value)" style="width:100%"/></div>
+      <div style="width:180px;"><select class="input" onchange="updateMapping(${m.id},'category',this.value)" style="width:100%">${CATEGORIES.map(c=>`<option value="${c}" ${m.category===c?'selected':''}>${c}</option>`).join("")}</select></div>
     </div>`).join("");
 }
 window.updateMapping = (id, f, v) => state.mappings[id][f] = v;
 
+/* 결과 페이지 */
 $("btn-apply").onclick = () => {
   state.ready = true;
   $("filter-dong").innerHTML = state.dongs.sort().map(d => `<option value="${d}">${d}</option>`).join("");
@@ -102,7 +127,8 @@ function renderView() {
   const grouped = {};
 
   state.mappings.forEach(m => {
-    const qByF = dongData[m.original] || {}; if (Object.keys(qByF).length === 0) return;
+    const qByF = dongData[m.original] || {};
+    if (Object.keys(qByF).length === 0) return;
     if (!grouped[m.canonical]) grouped[m.canonical] = { category: m.category, floors: {} };
     floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
   });
@@ -113,10 +139,11 @@ function renderView() {
 
   let bodyHtml = "";
   ["콘크리트", "철근", "거푸집"].forEach(cat => {
-    Object.keys(grouped).filter(n => grouped[n].category === cat).sort().forEach(name => {
+    const items = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
+    items.forEach(name => {
       const item = grouped[name];
       const total = floors.reduce((s,f)=>s+item.floors[f],0);
-      bodyHtml += `<tr><td>${dong}</td><td>${cat}</td><td>${name}</td><td>${cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:2})}</td>`).join("")}<td class="col-total">${total.toLocaleString()}</td></tr>`;
+      bodyHtml += `<tr><td>${dong}</td><td>${cat}</td><td>${name}</td><td>${cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:2})}</td>`).join("")}<td class="col-total">${total.toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`;
     });
     if(cat === '철근') {
       bodyHtml += `<tr class="row-ratio"><td colspan="4" style="text-align:right">톤당 루베 지표 (Ton/m³)</td>${floors.map(f => {
@@ -129,7 +156,7 @@ function renderView() {
   $("table-body").innerHTML = bodyHtml;
 }
 
-/* 엑셀 내보내기 (템플릿 양식 100% 동일화) */
+/* 엑셀 다운로드 (모든 동 포함 템플릿) */
 $("btn-excel").onclick = () => {
   const floors = state.floors.sort(floorSorter);
   const aoa = [
@@ -172,13 +199,14 @@ $("btn-excel").onclick = () => {
         ratioRow.push(""); aoa.push(ratioRow);
       }
     });
-    merges.push({ s: { r: startRow, c: 0 }, e: { r: aoa.length - 1, c: 0 } }); // 동 이름 열 병합
+    // 동 이름 열 병합
+    merges.push({ s: { r: startRow, c: 0 }, e: { r: aoa.length - 1, c: 0 } });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
   
-  // 열 너비 설정 (템플릿과 동일하게)
+  // 열 너비 설정
   const colWidths = [
     { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 8 }, 
     ...floors.map(() => ({ wch: 10 })), { wch: 12 }
