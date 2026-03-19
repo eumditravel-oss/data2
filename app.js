@@ -8,7 +8,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-/* 층 정렬 로직 (지하역순 -> FT -> 지상순 -> 옥탑) */
+/* 층 정렬 로직 (지하 역순 -> FT -> 지상 정순 -> PH) */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
@@ -134,11 +134,21 @@ function renderView() {
   ["콘크리트", "철근", "거푸집", "잡/기타"].forEach(cat => {
     const items = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
     if (items.length === 0) return;
+    
+    let catSum = 0;
     items.forEach(name => {
       const item = grouped[name];
       const total = floors.reduce((s,f)=>s+item.floors[f],0);
+      catSum += total;
       bodyHtml += `<tr><td>${dong}</td><td>${cat==='콘크리트'?'레미콘':cat}</td><td>${name}</td><td>${cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:3})}</td>`).join("")}<td class="col-total">${total.toLocaleString(undefined,{maximumFractionDigits:3})}</td></tr>`;
     });
+
+    // 화면용 부분합
+    bodyHtml += `<tr class="row-subtotal"><td colspan="4" style="text-align:right">합계</td>${floors.map(f => {
+      const s = items.reduce((sum, n) => sum + grouped[n].floors[f], 0);
+      return `<td>${s.toLocaleString(undefined,{maximumFractionDigits:3})}</td>`;
+    }).join("")}<td class="col-total">${catSum.toLocaleString(undefined,{maximumFractionDigits:3})}</td></tr>`;
+
     if(cat === '철근') {
       bodyHtml += `<tr class="row-ratio"><td colspan="4" style="text-align:right">톤당 루베 지표 (Ton/m³)</td>${floors.map(f => {
         const cSum = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
@@ -150,72 +160,65 @@ function renderView() {
   $("table-body").innerHTML = bodyHtml;
 }
 
-/* ★ 템플릿 100% 동일 엑셀 다운로드 (ExcelJS 적용) ★ */
+/* ★ 엑셀 내보내기: ExcelJS를 활용한 완벽한 템플릿 복제 ★ */
 $("btn-excel").onclick = async () => {
   if (!state.ready) return alert("먼저 분석을 완료해주세요.");
-  
+  if (typeof ExcelJS === 'undefined') return alert("ExcelJS 라이브러리를 불러오지 못했습니다.");
+
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('비교양식', {
-    views: [{ state: 'frozen', ySplit: 4, xSplit: 4 }] // 틀 고정 (템플릿과 동일)
+    views: [{ state: 'frozen', ySplit: 4, xSplit: 4 }] // 상단 4행, 좌측 4열 틀고정
   });
 
   const floors = state.floors.sort(floorSorter);
+  const endCol = 4 + floors.length + 1; // 합계열 번호 (1-based)
 
   // 1. 열 너비 설정
-  const cols = [
-    { width: 10 }, // A: 동
-    { width: 14 }, // B: 아이템 (레미콘/철근)
-    { width: 20 }, // C: 구분 (24MPa, H10 등)
-    { width: 10 }  // D: 단위
-  ];
-  floors.forEach(() => cols.push({ width: 10 })); // 층별 열
-  cols.push({ width: 12 }); // 합계
+  const cols = [{ width: 10 }, { width: 12 }, { width: 18 }, { width: 8 }];
+  floors.forEach(() => cols.push({ width: 9 }));
+  cols.push({ width: 13 }); // 합계
   cols.push({ width: 12 }); // 비고
   ws.columns = cols;
 
-  // 2. 상단 텍스트 추가 (1~2행)
+  // 2. 타이틀 (1~2행)
   const r1 = ws.addRow(["QS 분석용 프로젝트 비교 템플릿"]);
-  r1.height = 30;
-  ws.mergeCells(1, 1, 1, 4 + floors.length + 2); // 첫 행 전체 병합
-  r1.getCell(1).font = { size: 14, bold: true, name: '맑은 고딕' };
-  r1.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+  r1.height = 25;
+  ws.mergeCells(1, 1, 1, endCol + 1);
+  r1.getCell(1).font = { size: 12, bold: true, name: '맑은 고딕' };
+  r1.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
 
   const r2 = ws.addRow([]);
-  r2.height = 20;
-  const r2EndCol = 4 + floors.length + 1;
-  r2.getCell(r2EndCol).value = "할증 후 수량 기준";
-  r2.getCell(r2EndCol).font = { size: 10, name: '맑은 고딕' };
-  r2.getCell(r2EndCol).alignment = { vertical: 'middle', horizontal: 'right' };
-  ws.mergeCells(2, r2EndCol - 1, 2, r2EndCol); // 할증 텍스트 우측 병합
+  r2.height = 18;
+  r2.getCell(endCol + 1).value = "할증 후 수량 기준";
+  r2.getCell(endCol + 1).font = { size: 10, name: '맑은 고딕' };
+  r2.getCell(endCol + 1).alignment = { vertical: 'middle', horizontal: 'right' };
+  ws.mergeCells(2, 5, 2, endCol + 1);
 
-  // 3. 헤더 추가 (3~4행)
+  // 3. 헤더 설정 (3~4행)
   const r3 = ws.addRow(["동", "아이템", "구분", "단위", "현재 프로젝트"]);
   const r4 = ws.addRow(["", "", "", "", ...floors, "합계", "비고"]);
-  r3.height = 25; r4.height = 25;
+  r3.height = 22; r4.height = 22;
 
-  // 헤더 병합 처리
   ws.mergeCells(3, 1, 4, 1); // 동
   ws.mergeCells(3, 2, 4, 2); // 아이템
   ws.mergeCells(3, 3, 4, 3); // 구분
   ws.mergeCells(3, 4, 4, 4); // 단위
-  ws.mergeCells(3, 5, 3, 4 + floors.length + 1); // "현재 프로젝트" 가로 병합
-  ws.mergeCells(3, 4 + floors.length + 2, 4, 4 + floors.length + 2); // 비고
+  ws.mergeCells(3, 5, 3, endCol - 1); // "현재 프로젝트" 병합
+  ws.mergeCells(3, endCol, 4, endCol); // 합계
+  ws.mergeCells(3, endCol + 1, 4, endCol + 1); // 비고
 
-  // 헤더 스타일 (테두리 및 배경색)
-  const headerBorder = { top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'} };
+  const borderAll = { top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'} };
   for(let r=3; r<=4; r++) {
-    for(let c=1; c<=4 + floors.length + 2; c++) {
+    for(let c=1; c<=endCol + 1; c++) {
       const cell = ws.getCell(r, c);
       cell.font = { bold: true, size: 10, name: '맑은 고딕' };
       cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFEAEAEA' } }; // 옅은 회색
-      cell.border = headerBorder;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFE7E6E6' } }; // 엑셀 회색 헤더
+      cell.border = borderAll;
     }
   }
 
-  // 4. 데이터 추가 및 그룹화
-  const dataBorder = { top:{style:'thin', color:{argb:'FFBFBFBF'}}, left:{style:'thin', color:{argb:'FFBFBFBF'}}, bottom:{style:'thin', color:{argb:'FFBFBFBF'}}, right:{style:'thin', color:{argb:'FFBFBFBF'}} };
-
+  // 4. 데이터 및 스타일 적용
   state.dongs.sort().forEach(dong => {
     const dongData = state.data[dong] || {};
     const grouped = {};
@@ -225,7 +228,7 @@ $("btn-excel").onclick = async () => {
       floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
     });
 
-    let dongStartRow = ws.rowCount + 1;
+    const startRow = ws.rowCount + 1;
 
     ["콘크리트", "철근", "거푸집"].forEach(cat => {
       const items = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
@@ -234,33 +237,31 @@ $("btn-excel").onclick = async () => {
       const catSum = {}; floors.forEach(f => catSum[f] = 0);
       let totalSum = 0;
 
-      // 상세 아이템 (엑셀 그룹화 레벨 1)
       items.forEach(name => {
         const item = grouped[name];
-        const unit = cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2');
-        const rowData = [dong, cat==='콘크리트'?'레미콘':cat, name, unit];
+        const rowData = [dong, cat==='콘크리트'?'레미콘':cat, name, cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')];
         
         let rowTotal = 0;
         floors.forEach(f => {
-          const val = item.floors[f] || 0;
-          rowData.push(val);
-          catSum[f] += val; rowTotal += val;
+          rowData.push(item.floors[f] || 0);
+          catSum[f] += (item.floors[f] || 0);
+          rowTotal += (item.floors[f] || 0);
         });
         rowData.push(rowTotal);
         
-        const r = ws.addRow(rowData);
-        r.height = 18;
-        r.outlineLevel = 1; // [-] 그룹 묶기 지정
+        const row = ws.addRow(rowData);
+        row.height = 18;
+        row.outlineLevel = 1; // [-] 그룹핑 (상세 숨기기 가능)
         totalSum += rowTotal;
 
-        r.eachCell((cell, colNum) => {
-          cell.border = dataBorder; cell.font = { name: '맑은 고딕', size: 10 };
+        row.eachCell((cell, colNum) => {
+          cell.border = borderAll; cell.font = { name: '맑은 고딕', size: 10 };
           if (colNum <= 4) cell.alignment = { vertical: 'middle', horizontal: 'center' };
           else { cell.alignment = { vertical: 'middle', horizontal: 'right' }; cell.numFmt = '#,##0.000'; }
         });
       });
 
-      // 카테고리 합계 (엑셀 그룹화 레벨 0 - 펼쳤을때 보이는 기준줄)
+      // 합계(소계) 줄 설정 (회색 바탕)
       const sumRowData = [dong, cat==='콘크리트'?'레미콘':cat, "합계", cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')];
       floors.forEach(f => sumRowData.push(catSum[f]));
       sumRowData.push(totalSum);
@@ -270,45 +271,44 @@ $("btn-excel").onclick = async () => {
       sumRow.outlineLevel = 0; 
       sumRow.eachCell((cell, colNum) => {
         cell.font = { name: '맑은 고딕', size: 10, bold: true };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFF2F2F2' } }; // 짙은 회색 배경
-        cell.border = dataBorder;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFD9D9D9' } }; // 진한 회색
+        cell.border = borderAll;
         if (colNum <= 4) cell.alignment = { vertical: 'middle', horizontal: 'center' };
         else { cell.alignment = { vertical: 'middle', horizontal: 'right' }; cell.numFmt = '#,##0.000'; }
       });
 
-      // 비율 계산 (철근 톤당 루베)
+      // 철근 톤당 루베 지표 줄 (노란 바탕, 빨간 글씨)
       if (cat === '철근') {
         const ratioRowData = [dong, "레미콘/철근", "비율", "M3/TON"];
         floors.forEach(f => {
           const cSum = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
           ratioRowData.push(cSum > 0 ? (catSum[f] / cSum) : 0);
         });
-        ratioRowData.push(""); // 마지막 합계란 비움
+        ratioRowData.push(""); // 합계란 비우기
+        
         const ratioRow = ws.addRow(ratioRowData);
         ratioRow.height = 18;
         ratioRow.eachCell((cell, colNum) => {
-          cell.font = { name: '맑은 고딕', size: 10, bold: true, color: { arg: 'FFC00000' } }; // 붉은색 글씨
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFFFE699' } }; // 주황/노란색 배경
-          cell.border = dataBorder;
+          cell.font = { name: '맑은 고딕', size: 10, bold: true, color: { arg: 'FFFF0000' } }; // 빨간색
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { arg: 'FFFFFF00' } }; // 노란색
+          cell.border = borderAll;
           if (colNum <= 4) cell.alignment = { vertical: 'middle', horizontal: 'center' };
           else { cell.alignment = { vertical: 'middle', horizontal: 'right' }; cell.numFmt = '#,##0.0000'; }
         });
       }
     });
 
-    // 동 이름 수직 병합 (A열)
-    let dongEndRow = ws.rowCount;
-    if (dongStartRow < dongEndRow) {
-      ws.mergeCells(dongStartRow, 1, dongEndRow, 1);
-      const mergedCell = ws.getCell(dongStartRow, 1);
-      mergedCell.alignment = { vertical: 'middle', horizontal: 'center' };
-      mergedCell.font = { name: '맑은 고딕', size: 10, bold: true };
+    // 동 명칭 수직 병합
+    const endRow = ws.rowCount;
+    if (startRow < endRow) {
+      ws.mergeCells(startRow, 1, endRow, 1);
+      ws.getCell(startRow, 1).alignment = { vertical: 'middle', horizontal: 'center' };
     }
   });
 
-  // Blob 생성 및 다운로드 (FileSaver.js 활용)
+  // 다운로드 실행
   const buffer = await wb.xlsx.writeBuffer();
-  saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), "QS_통합템플릿_리포트.xlsx");
+  saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), "QS_통합리포트_전체.xlsx");
 };
 
 function switchTab(id) {
