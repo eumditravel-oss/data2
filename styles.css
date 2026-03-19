@@ -5,32 +5,47 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Pretendard", sans-serif; padding: 24px; line-height: 1.5; }
+
 .app-shell { max-width: 1600px; margin: 0 auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .topbar h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+
 .tabs { display: flex; gap: 10px; margin-bottom: 24px; }
 .tab { padding: 14px 28px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-weight: 700; transition: 0.2s; color: var(--muted); }
 .tab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 6px 15px rgba(31,94,255,0.3); }
+
 .panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 30px; margin-bottom: 20px; }
 .tab-panel { display: none; }
 .tab-panel.is-active { display: block; }
-.upload-box { border: 2px dashed var(--line); padding: 60px 20px; text-align: center; border-radius: var(--radius); background: #fbfcff; transition: 0.3s; }
-.upload-box:hover { border-color: var(--primary); background: #f5f8ff; }
-.upload-box__icon { font-size: 48px; margin-bottom: 15px; }
-.filebox input { display: none; }
+
+/* 업로드 박스 */
+.upload-box { border: 2px dashed var(--line); padding: 60px 20px; text-align: center; border-radius: var(--radius); background: #fbfcff; }
 .filebox__btn { padding: 12px 32px; background: #fff; border: 2px solid var(--primary); color: var(--primary); border-radius: 10px; cursor: pointer; font-weight: 800; display: inline-block; }
 .file-chip { display: inline-block; padding: 6px 14px; background: var(--primary-weak); color: var(--primary); border-radius: 20px; font-size: 12px; margin: 5px; font-weight: 700; border: 1px solid var(--line); }
-.excel-view-container { overflow: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; max-height: 650px; }
+
+/* 2번 탭: 분류 설정 스타일 (강화) */
+.mapping-container { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.list-header { display: flex; align-items: center; background: #f4f7fd; padding: 15px; font-weight: 800; color: #445571; border-bottom: 2px solid var(--line); }
+.mapping-list { max-height: 500px; overflow-y: auto; }
+.item-row { display: flex; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--line); background: #fff; gap: 15px; }
+.item-row:hover { background: #f9fbff; }
+
+.col-num { width: 60px; text-align: center; font-weight: bold; color: var(--muted); }
+.col-orig { flex: 1; font-weight: 700; color: var(--text); }
+.col-edit { width: 250px; }
+.col-cat { width: 180px; }
+
+/* 3번 탭: 수량표 스타일 */
+.excel-view-container { overflow: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; max-height: 600px; }
 .excel-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .excel-table th, .excel-table td { border: 0.5px solid var(--line); padding: 12px 10px; text-align: center; white-space: nowrap; }
-.excel-table th { background: #f4f7fd; font-weight: 800; position: sticky; top: 0; z-index: 10; color: #445571; }
-.excel-table tr:hover td { background-color: #f9fbff; }
+.excel-table th { background: #f4f7fd; font-weight: 800; position: sticky; top: 0; z-index: 10; }
 .row-ratio { background: #fff4e6 !important; font-weight: 800; color: var(--orange); }
-.col-total { background: #f8f9fa; font-weight: 800; color: var(--primary); }
+
+/* 버튼 및 공통 */
 .btn { padding: 14px 24px; border-radius: 12px; border: none; font-weight: 800; cursor: pointer; transition: 0.2s; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-success { background: var(--success); color: #fff; }
 .btn-ghost { background: #fff; border: 1px solid var(--line); }
-.toolbar { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
-.input { padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; outline: none; font-size: 14px; }
-.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,94,255,0.1); }
+.input { padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; outline: none; width: 100%; }
+.input:focus { border-color: var(--primary); }
