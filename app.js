@@ -8,7 +8,6 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-/* 층 정렬 로직 */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
@@ -29,11 +28,9 @@ function predictCategory(name) {
   return "잡/기타";
 }
 
-/* 분석 시작 */
 $("btn-parse").onclick = async () => {
   const files = Array.from($('file-main').files);
-  if (files.length === 0) return alert("파일을 먼저 선택해주세요.");
-  
+  if (files.length === 0) return alert("파일을 선택해주세요.");
   state.rawItems = []; state.dongs = []; state.floors = []; state.data = {};
 
   for (const file of files) {
@@ -48,14 +45,8 @@ function parseRows(rows) {
   const r3 = rows[2] || [], r4 = rows[3] || [];
   for (let r = 4; r < rows.length; r++) {
     const row = rows[r];
-    const txt = row.join("|");
-    const m = txt.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
-    if (m) { 
-      curDong = m[1].trim(); 
-      if(!state.dongs.includes(curDong)) state.dongs.push(curDong); 
-      state.data[curDong] = state.data[curDong] || {}; 
-      lastF = ""; continue; 
-    }
+    const m = row.join("|").match(/동\s*명\s*:\s*\[([^\]]+)\]/);
+    if (m) { curDong = m[1].trim(); if(!state.dongs.includes(curDong)) state.dongs.push(curDong); state.data[curDong] = {}; lastF = ""; continue; }
     if (!curDong) continue;
     const fRaw = String(row[0]).trim();
     if (fRaw !== "" && !fRaw.includes("계") && !fRaw.includes("층")) {
@@ -83,15 +74,18 @@ function buildMapping() {
 function renderMapping() {
   $("mapping-list").innerHTML = state.mappings.map(m => `
     <div class="item-row">
-      <div style="width:60px; text-align:center; color:#888;">${m.id + 1}</div>
-      <div style="flex:1; font-weight:700;">${m.original}</div>
-      <div style="width:250px;"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id},'canonical',this.value)" style="width:100%"/></div>
-      <div style="width:180px;"><select class="input" onchange="updateMapping(${m.id},'category',this.value)" style="width:100%">${CATEGORIES.map(c=>`<option value="${c}" ${m.category===c?'selected':''}>${c}</option>`).join("")}</select></div>
+      <div class="col-num">${m.id + 1}</div>
+      <div class="col-orig">${m.original}</div>
+      <div class="col-edit"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id},'canonical',this.value)"/></div>
+      <div class="col-cat">
+        <select class="input" onchange="updateMapping(${m.id},'category',this.value)">
+          ${CATEGORIES.map(c=>`<option value="${c}" ${m.category===c?'selected':''}>${c}</option>`).join("")}
+        </select>
+      </div>
     </div>`).join("");
 }
 window.updateMapping = (id, f, v) => state.mappings[id][f] = v;
 
-/* 결과 페이지 */
 $("btn-apply").onclick = () => {
   state.ready = true;
   $("filter-dong").innerHTML = state.dongs.sort().map(d => `<option value="${d}">${d}</option>`).join("");
@@ -108,8 +102,7 @@ function renderView() {
   const grouped = {};
 
   state.mappings.forEach(m => {
-    const qByF = dongData[m.original] || {};
-    if (Object.keys(qByF).length === 0) return;
+    const qByF = dongData[m.original] || {}; if (Object.keys(qByF).length === 0) return;
     if (!grouped[m.canonical]) grouped[m.canonical] = { category: m.category, floors: {} };
     floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
   });
@@ -120,8 +113,7 @@ function renderView() {
 
   let bodyHtml = "";
   ["콘크리트", "철근", "거푸집"].forEach(cat => {
-    const items = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
-    items.forEach(name => {
+    Object.keys(grouped).filter(n => grouped[n].category === cat).sort().forEach(name => {
       const item = grouped[name];
       const total = floors.reduce((s,f)=>s+item.floors[f],0);
       bodyHtml += `<tr><td>${dong}</td><td>${cat}</td><td>${name}</td><td>${cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:2})}</td>`).join("")}<td class="col-total">${total.toLocaleString()}</td></tr>`;
@@ -137,7 +129,7 @@ function renderView() {
   $("table-body").innerHTML = bodyHtml;
 }
 
-/* 엑셀 다운로드 (모든 동 포함) */
+/* 엑셀 내보내기 (템플릿 양식 100% 동일화) */
 $("btn-excel").onclick = () => {
   const floors = state.floors.sort(floorSorter);
   const aoa = [
@@ -180,15 +172,22 @@ $("btn-excel").onclick = () => {
         ratioRow.push(""); aoa.push(ratioRow);
       }
     });
-    // 동별 셀 병합 (A열)
-    merges.push({ s: { r: startRow, c: 0 }, e: { r: aoa.length - 1, c: 0 } });
+    merges.push({ s: { r: startRow, c: 0 }, e: { r: aoa.length - 1, c: 0 } }); // 동 이름 열 병합
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
+  
+  // 열 너비 설정 (템플릿과 동일하게)
+  const colWidths = [
+    { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 8 }, 
+    ...floors.map(() => ({ wch: 10 })), { wch: 12 }
+  ];
+  ws['!cols'] = colWidths;
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "통합수량표");
-  XLSX.writeFile(wb, `QS_통합분석_전체.xlsx`);
+  XLSX.writeFile(wb, `QS_통합리포트_전체.xlsx`);
 };
 
 function switchTab(id) {
