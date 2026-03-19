@@ -8,7 +8,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-/* 층 정렬: B(내림차순) -> FT -> F(오름차순) -> PH */
+/* 층 정렬 로직 */
 function floorSorter(a, b) {
   const getRank = (name) => {
     const s = String(name).toUpperCase().trim();
@@ -29,18 +29,16 @@ function predictCategory(name) {
   return "잡/기타";
 }
 
+/* 분석 시작 */
 $("btn-parse").onclick = async () => {
   const files = Array.from($('file-main').files);
-  if (files.length === 0) return alert("파일을 선택해주세요.");
+  if (files.length === 0) return alert("파일을 먼저 선택해주세요.");
+  
   state.rawItems = []; state.dongs = []; state.floors = []; state.data = {};
 
   for (const file of files) {
-    const buffer = await file.arrayBuffer();
-    const wb = XLSX.read(buffer, { type: 'array' });
-    wb.SheetNames.forEach(sn => {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "" });
-      parseRows(rows);
-    });
+    const rows = XLSX.utils.sheet_to_json(XLSX.read(await file.arrayBuffer(), {type:'array'}).Sheets[XLSX.read(await file.arrayBuffer(), {type:'array'}).SheetNames[0]], {header:1, defval:""});
+    parseRows(rows);
   }
   buildMapping(); renderMapping(); switchTab('mapping');
 };
@@ -52,7 +50,12 @@ function parseRows(rows) {
     const row = rows[r];
     const txt = row.join("|");
     const m = txt.match(/동\s*명\s*:\s*\[([^\]]+)\]/);
-    if (m) { curDong = m[1].trim(); if(!state.dongs.includes(curDong)) state.dongs.push(curDong); state.data[curDong] = state.data[curDong] || {}; lastF = ""; continue; }
+    if (m) { 
+      curDong = m[1].trim(); 
+      if(!state.dongs.includes(curDong)) state.dongs.push(curDong); 
+      state.data[curDong] = state.data[curDong] || {}; 
+      lastF = ""; continue; 
+    }
     if (!curDong) continue;
     const fRaw = String(row[0]).trim();
     if (fRaw !== "" && !fRaw.includes("계") && !fRaw.includes("층")) {
@@ -80,7 +83,7 @@ function buildMapping() {
 function renderMapping() {
   $("mapping-list").innerHTML = state.mappings.map(m => `
     <div class="item-row">
-      <div style="width:60px; text-align:center; color:#999; font-weight:800;">${m.id + 1}</div>
+      <div style="width:60px; text-align:center; color:#888;">${m.id + 1}</div>
       <div style="flex:1; font-weight:700;">${m.original}</div>
       <div style="width:250px;"><input class="input" value="${m.canonical}" oninput="updateMapping(${m.id},'canonical',this.value)" style="width:100%"/></div>
       <div style="width:180px;"><select class="input" onchange="updateMapping(${m.id},'category',this.value)" style="width:100%">${CATEGORIES.map(c=>`<option value="${c}" ${m.category===c?'selected':''}>${c}</option>`).join("")}</select></div>
@@ -88,6 +91,7 @@ function renderMapping() {
 }
 window.updateMapping = (id, f, v) => state.mappings[id][f] = v;
 
+/* 결과 페이지 */
 $("btn-apply").onclick = () => {
   state.ready = true;
   $("filter-dong").innerHTML = state.dongs.sort().map(d => `<option value="${d}">${d}</option>`).join("");
@@ -110,94 +114,81 @@ function renderView() {
     floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
   });
 
-  const stats = { conc: {}, rebar: {} };
-  floors.forEach(f => {
-    stats.conc[f] = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
-    stats.rebar[f] = Object.keys(grouped).filter(n=>grouped[n].category==='철근').reduce((s,n)=>s+grouped[n].floors[f],0);
-  });
-
-  // 테이블 생성
-  let headHtml = `<tr><th rowspan="2">동</th><th rowspan="2">아이템</th><th rowspan="2">구분</th><th rowspan="2">단위</th><th colspan="${floors.length}">현재 프로젝트</th><th rowspan="2">합계</th></tr><tr>`;
-  floors.forEach(f => headHtml += `<th>${f}</th>`);
-  headHtml += "</tr>";
+  let headHtml = `<tr><th rowspan="2">동</th><th rowspan="2">아이템</th><th rowspan="2">구분</th><th rowspan="2">단위</th><th colspan="${floors.length}">현재 프로젝트 수량</th><th rowspan="2">합계</th></tr><tr>`;
+  floors.forEach(f => headHtml += `<th>${f}</th>`); headHtml += "</tr>";
   $("table-head").innerHTML = headHtml;
 
   let bodyHtml = "";
-  const catsOrder = ["콘크리트", "철근", "거푸집", "잡/기타"];
-  catsOrder.forEach(cat => {
+  ["콘크리트", "철근", "거푸집"].forEach(cat => {
     const items = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
     items.forEach(name => {
       const item = grouped[name];
-      const unit = cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2');
       const total = floors.reduce((s,f)=>s+item.floors[f],0);
-      bodyHtml += `<tr><td>${dong}</td><td>${cat}</td><td>${name}</td><td>${unit}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:2})}</td>`).join("")}<td class="col-total">${total.toLocaleString(undefined,{maximumFractionDigits:2})}</td></tr>`;
+      bodyHtml += `<tr><td>${dong}</td><td>${cat}</td><td>${name}</td><td>${cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')}</td>${floors.map(f=>`<td>${item.floors[f].toLocaleString(undefined,{maximumFractionDigits:2})}</td>`).join("")}<td class="col-total">${total.toLocaleString()}</td></tr>`;
     });
-    // 카테고리별 합계 및 비율 행 (철근 이후)
-    if (cat === '철근') {
-        bodyHtml += `<tr class="row-ratio"><td colspan="4" style="text-align:right;">층별 톤당 루베 (Ton / m³)</td>${floors.map(f => `<td>${stats.conc[f]>0?(stats.rebar[f]/stats.conc[f]).toFixed(4):"0.0000"}</td>`).join("")}<td style="background:#ffd8a8;">-</td></tr>`;
+    if(cat === '철근') {
+      bodyHtml += `<tr class="row-ratio"><td colspan="4" style="text-align:right">톤당 루베 지표 (Ton/m³)</td>${floors.map(f => {
+        const cS = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
+        const rS = Object.keys(grouped).filter(n=>grouped[n].category==='철근').reduce((s,n)=>s+grouped[n].floors[f],0);
+        return `<td>${cS>0?(rS/cS).toFixed(4):'-'}</td>`;
+      }).join("")}<td>-</td></tr>`;
     }
   });
   $("table-body").innerHTML = bodyHtml;
-
-  const tConc = floors.reduce((s,f)=>s+stats.conc[f],0);
-  const tRebar = floors.reduce((s,f)=>s+stats.rebar[f],0);
-  $("dong-summary").innerHTML = `<div class="stat-card"><span>총 콘크리트</span><strong>${tConc.toLocaleString()} m³</strong></div><div class="stat-card"><span>총 철근</span><strong>${tRebar.toLocaleString()} Ton</strong></div><div class="stat-card highlight"><span>전체 평균 톤당 루베</span><strong>${tConc>0?(tRebar/tConc).toFixed(4):0} Ton/m³</strong></div>`;
 }
 
-/* 엑셀 다운로드 (템플릿 100% 일치) */
+/* 엑셀 다운로드 (모든 동 포함) */
 $("btn-excel").onclick = () => {
-  const dong = $("filter-dong").value;
   const floors = state.floors.sort(floorSorter);
-  const grouped = {}; // renderView와 동일 로직으로 데이터 재수집
-  const dongData = state.data[dong] || {};
-  state.mappings.forEach(m => {
-    const qByF = dongData[m.original] || {}; if (Object.keys(qByF).length === 0) return;
-    if (!grouped[m.canonical]) grouped[m.canonical] = { category: m.category, floors: {} };
-    floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
-  });
-
   const aoa = [
-    ["QS 분석용 프로젝트 비교 템플릿"],
+    ["QS 분석용 프로젝트 통합 리포트"],
     ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "할증 후 수량 기준"],
-    ["동", "아이템", "구분", "단위", "현재 프로젝트", ...Array(floors.length-1).fill(""), "비고"],
-    ["", "", "", "", ...floors, "합계"]
+    ["동", "아이템", "구분", "단위", "현재 프로젝트 수량", ...Array(floors.length-1).fill(""), "합계"],
+    ["", "", "", "", ...floors, ""]
   ];
 
-  const cats = ["콘크리트", "철근", "거푸집"];
-  cats.forEach(cat => {
-    const names = Object.keys(grouped).filter(n => grouped[n].category === cat).sort();
-    names.forEach(name => {
-      const item = grouped[name];
-      const row = [dong, cat, name, cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')];
-      floors.forEach(f => row.push(item.floors[f] || 0));
-      row.push(floors.reduce((s,f)=>s+item.floors[f], 0));
-      aoa.push(row);
+  const merges = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 4 + floors.length } },
+    { s: { r: 2, c: 4 }, e: { r: 2, c: 4 + floors.length - 1 } }
+  ];
+
+  state.dongs.sort().forEach(dong => {
+    const dongData = state.data[dong] || {};
+    const grouped = {};
+    state.mappings.forEach(m => {
+      const qByF = dongData[m.original] || {}; if (Object.keys(qByF).length === 0) return;
+      if (!grouped[m.canonical]) grouped[m.canonical] = { category: m.category, floors: {} };
+      floors.forEach(f => grouped[m.canonical].floors[f] = (grouped[m.canonical].floors[f] || 0) + (qByF[f] || 0));
     });
-    if (cat === '철근') {
-      const ratioRow = [dong, "레미콘/철근", "비율", "M3/TON"];
-      floors.forEach(f => {
-        const conc = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
-        const rebar = Object.keys(grouped).filter(n=>grouped[n].category==='철근').reduce((s,n)=>s+grouped[n].floors[f],0);
-        ratioRow.push(conc > 0 ? parseFloat((rebar / conc).toFixed(4)) : 0);
+
+    const startRow = aoa.length;
+    ["콘크리트", "철근", "거푸집"].forEach(cat => {
+      Object.keys(grouped).filter(n => grouped[n].category === cat).sort().forEach(name => {
+        const item = grouped[name];
+        const row = [dong, cat, name, cat==='철근'?'TON':(cat==='콘크리트'?'M3':'M2')];
+        floors.forEach(f => row.push(item.floors[f] || 0));
+        row.push(floors.reduce((s,f)=>s+item.floors[f], 0));
+        aoa.push(row);
       });
-      aoa.push(ratioRow);
-    }
+      if (cat === '철근') {
+        const ratioRow = [dong, "지표", "톤당루베", "Ton/M3"];
+        floors.forEach(f => {
+          const cSum = Object.keys(grouped).filter(n=>grouped[n].category==='콘크리트').reduce((s,n)=>s+grouped[n].floors[f],0);
+          const rSum = Object.keys(grouped).filter(n=>grouped[n].category==='철근').reduce((s,n)=>s+grouped[n].floors[f],0);
+          ratioRow.push(cSum > 0 ? parseFloat((rSum / cSum).toFixed(4)) : 0);
+        });
+        ratioRow.push(""); aoa.push(ratioRow);
+      }
+    });
+    // 동별 셀 병합 (A열)
+    merges.push({ s: { r: startRow, c: 0 }, e: { r: aoa.length - 1, c: 0 } });
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // 셀 병합 설정 (템플릿과 동일하게)
-  ws['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 34 } }, // 타이틀
-    { s: { r: 2, c: 4 }, e: { r: 2, c: 4 + floors.length - 1 } }, // '현재 프로젝트' 헤더 병합
-    { s: { r: 2, c: 0 }, e: { r: 3, c: 0 } }, // 동
-    { s: { r: 2, c: 1 }, e: { r: 3, c: 1 } }, // 아이템
-    { s: { r: 2, c: 2 }, e: { r: 3, c: 2 } }, // 구분
-    { s: { r: 2, c: 3 }, e: { r: 3, c: 3 } }  // 단위
-  ];
-
+  ws['!merges'] = merges;
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "비교양식");
-  XLSX.writeFile(wb, `QS_분석_${dong}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, "통합수량표");
+  XLSX.writeFile(wb, `QS_통합분석_전체.xlsx`);
 };
 
 function switchTab(id) {
